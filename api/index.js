@@ -1,5 +1,5 @@
 // ============================================================
-// XWEB ENGINE - Serverless API (Hardened)
+// XWEB ENGINE - Serverless API (Hardened v2)
 // by XRANS OFFICIAL
 // ============================================================
 
@@ -14,26 +14,9 @@ const WH_SECRET = process.env.WEBHOOK_SECRET;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const APP_URL   = process.env.APP_URL || '';
 
-// ---------- Rate limit storage (in-memory, per instance) ----------
-const RL = new Map();
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of RL) if (v.reset < now) RL.delete(k);
-}, 60000);
-
-function rateLimit(key, max, windowMs) {
-  const now = Date.now();
-  let e = RL.get(key);
-  if (!e || e.reset < now) { e = { count: 0, reset: now + windowMs }; RL.set(key, e); }
-  e.count++;
-  return {
-    ok: e.count <= max,
-    remaining: Math.max(0, max - e.count),
-    retry_after: Math.ceil((e.reset - now) / 1000)
-  };
-}
-
-// ---------- Response ----------
+// ============================================================
+// Security headers
+// ============================================================
 const SEC_HEADERS = {
   'Content-Type': 'application/json',
   'X-Content-Type-Options': 'nosniff',
@@ -52,7 +35,9 @@ function err(res, code, message) {
   return res.status(code).json({ ok: false, message });
 }
 
-// ---------- Validation ----------
+// ============================================================
+// Validation
+// ============================================================
 const cleanStr = (s, max) => String(s ?? '').trim().slice(0, max);
 const isTok = (s) => /^XWEB-[A-Z0-9]{6}$/i.test(String(s || ''));
 const isIdSafe = (s) => /^[a-zA-Z0-9_-]{1,80}$/.test(String(s || ''));
@@ -63,88 +48,85 @@ const isAdmin = (req) => {
   catch { return false; }
 };
 
-// ---------- Origin & Method checks ----------
-function checkOrigin(req) {
-  const origin = req.headers.origin || '';
-  const referer = req.headers.referer || '';
-  const host = req.headers.host || '';
-
-  // Tanpa origin/referer: hanya izinkan kalau bukan browser (server-to-server)
-  // Untuk endpoint web, wajib ada origin/referer dari domain yang sama
-  if (!origin && !referer) return { ok: false, reason: 'no-origin' };
-
-  const check = (u) => {
-    if (!u) return false;
-    try {
-      const h = new URL(u).host;
-      // Harus PERSIS sama dengan host, bukan includes
-      return h === host;
-    } catch { return false; }
-  };
-
-  if (origin && !check(origin)) return { ok: false, reason: 'bad-origin' };
-  if (referer && !check(referer)) return { ok: false, reason: 'bad-referer' };
-  if (APP_URL) {
-    const appHost = new URL(APP_URL).host;
-    if (host !== appHost && origin && !origin.includes(appHost)) {
-      // fallback kalau host Vercel beda dengan APP_URL
-    }
-  }
-  return { ok: true };
-}
-
 function getClientIp(req) {
   const xf = req.headers['x-forwarded-for'];
   if (xf) return String(xf).split(',')[0].trim();
   return req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
 }
-
 function getBody(req) {
   return req.body && typeof req.body === 'object' ? req.body : {};
 }
 
-// ---------- Firebase REST (dengan timeout) ----------
+// ============================================================
+// Firebase REST (dengan timeout)
+// ============================================================
 async function fbFetch(url, opt = {}, timeoutMs = 8000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch(url, { ...opt, signal: ctrl.signal });
-    return r;
-  } finally {
-    clearTimeout(t);
-  }
+  try { return await fetch(url, { ...opt, signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
 }
-const fb = (path, opt = {}) =>
-  fbFetch(`${FB_URL}${path}.json?auth=${encodeURIComponent(FB_SECRET)}`, opt).then(r => r.json());
+const fbAuth = `?auth=${encodeURIComponent(FB_SECRET)}`;
+const fb = (path, opt = {}) => fbFetch(`${FB_URL}${path}.json${fbAuth}`, opt).then(r => r.json());
 const fbSet   = (p, v) => fb(p, { method: 'PUT',   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbPatch = (p, v) => fb(p, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbDel   = (p)    => fb(p, { method: 'DELETE' });
 
-// ---------- BuatQris (dengan timeout) ----------
-async function bq(params) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 10000);
+// ============================================================
+// Rate Limit — PERSISTENT via Firebase
+// Format: /_rl/{bucket}/{hashed_key} = { c: count, r: resetTimestamp }
+// Auto cleanup: tiap pemanggilan, hapus entry expired (lazy)
+// ============================================================
+async function rateLimitPersistent(bucket, key, max, windowMs) {
+  const now = Date.now();
+  const hash = crypto.createHash('sha256').update(String(key)).digest('hex').slice(0, 16);
+  const path = `/_rl/${bucket}/${hash}`;
+
   try {
-    const r = await fetch(BQ_BASE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ account_id: BQ_ID, secret_token: BQ_SECRET, ...params }).toString(),
-      signal: ctrl.signal
-    });
-    return await r.json();
-  } catch { return null; }
-  finally { clearTimeout(t); }
+    const cur = await fb(path);
+    if (cur && cur.r > now) {
+      // masih dalam window
+      if (cur.c >= max) {
+        return { ok: false, retry_after: Math.ceil((cur.r - now) / 1000) };
+      }
+      // increment
+      await fbPatch(path, { c: cur.c + 1 });
+      return { ok: true };
+    }
+    // window baru / expired
+    await fbSet(path, { c: 1, r: now + windowMs });
+    return { ok: true };
+  } catch {
+    // Kalau Firebase error, JANGAN block user — fail open untuk UX
+    return { ok: true };
+  }
+}
+
+// ============================================================
+// Origin check
+// ============================================================
+function checkOrigin(req) {
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
+  const host = req.headers.host || '';
+  if (!origin && !referer) return { ok: false };
+  const check = (u) => {
+    if (!u) return false;
+    try { return new URL(u).host === host; } catch { return false; }
+  };
+  if (origin && !check(origin)) return { ok: false };
+  if (referer && !check(referer)) return { ok: false };
+  return { ok: true };
 }
 
 // ============================================================
 // POST /api/create-order
-// Rate limit: 5 order / menit per IP, 20 order / 10 menit per IP
 // ============================================================
 async function createOrder(req, res) {
   const ip = getClientIp(req);
-  const r1 = rateLimit(`order:${ip}`, 5, 60_000);
+  const r1 = await rateLimitPersistent('order_m', ip, 5, 60_000);
   if (!r1.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r1.retry_after} detik.`);
-  const r2 = rateLimit(`order10:${ip}`, 20, 600_000);
+  const r2 = await rateLimitPersistent('order_10m', ip, 20, 600_000);
   if (!r2.ok) return err(res, 429, 'Batas order tercapai. Coba lagi nanti.');
 
   const body = getBody(req);
@@ -156,9 +138,7 @@ async function createOrder(req, res) {
   const ct = cleanStr(contact, 120);
   if (nm.length < 2) return err(res, 400, 'Nama tidak valid');
   if (ct.length < 5) return err(res, 400, 'Kontak tidak valid');
-  if (nm.length > 80 || ct.length > 120) return err(res, 400, 'Input terlalu panjang');
 
-  // Validasi setiap ID produk
   const ids = [...new Set(items.map(String))];
   for (const id of ids) {
     if (!isIdSafe(id)) return err(res, 400, 'ID produk tidak valid');
@@ -186,7 +166,7 @@ async function createOrder(req, res) {
     ct,
     items: valid.map(p => ({ n: p.n, p: Number(p.p || 0), i: p.id })),
     ts: now,
-    ip: ip.slice(0, 40)  // untuk audit
+    ip: ip.slice(0, 40)
   };
   await fbSet(`/orders/${token}`, order);
 
@@ -195,15 +175,28 @@ async function createOrder(req, res) {
     return ok(res, { token, free: true });
   }
 
-  const r = await bq({
-    action: 'api_create_qris',
-    amount: String(total),
-    description: `Order ${token}`,
-    fee_by: 'buyer',
-    app_name: 'XWEB ENGINE',
-    app_version: '1.0.0',
-    app_url: APP_URL
-  });
+  const ctrl = new AbortController();
+  const tt = setTimeout(() => ctrl.abort(), 10000);
+  let r;
+  try {
+    const resp = await fetch(BQ_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        account_id: BQ_ID, secret_token: BQ_SECRET,
+        action: 'api_create_qris',
+        amount: String(total),
+        description: `Order ${token}`,
+        fee_by: 'buyer',
+        app_name: 'XWEB ENGINE',
+        app_version: '1.0.0',
+        app_url: APP_URL
+      }).toString(),
+      signal: ctrl.signal
+    });
+    r = await resp.json();
+  } catch { r = null; }
+  finally { clearTimeout(tt); }
 
   if (!r || !r.success) {
     await fbPatch(`/orders/${token}`, { status: 'failed', note: r?.message || 'QRIS gagal' });
@@ -229,19 +222,17 @@ async function createOrder(req, res) {
 
 // ============================================================
 // POST /api/check-status
-// Rate limit: 30 / 5 menit per IP, dan 1 / 20s per (IP + token)
 // ============================================================
 async function checkStatus(req, res) {
   const ip = getClientIp(req);
-  const r1 = rateLimit(`chk:${ip}`, 30, 300_000);
+  const r1 = await rateLimitPersistent('chk_5m', ip, 30, 300_000);
   if (!r1.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r1.retry_after} detik.`);
 
   const body = getBody(req);
   const { token } = body;
   if (!isTok(token)) return err(res, 400, 'Token tidak valid');
 
-  // Rate limit per token juga — cegah brute-force token
-  const r2 = rateLimit(`chkT:${ip}:${token}`, 5, 60_000);
+  const r2 = await rateLimitPersistent('chkT_m', `${ip}:${token}`, 5, 60_000);
   if (!r2.ok) return err(res, 429, `Coba lagi ${r2.retry_after} detik.`);
 
   const o = await fb(`/orders/${token}`);
@@ -262,10 +253,23 @@ async function checkStatus(req, res) {
   }
   await fbSet(`/orders/${token}/_lastCheck`, now);
 
-  const r = await bq({
-    action: 'api_check_status',
-    transaction_id: String(o.txn)
-  });
+  const ctrl = new AbortController();
+  const tt = setTimeout(() => ctrl.abort(), 10000);
+  let r;
+  try {
+    const resp = await fetch(BQ_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        account_id: BQ_ID, secret_token: BQ_SECRET,
+        action: 'api_check_status',
+        transaction_id: String(o.txn)
+      }).toString(),
+      signal: ctrl.signal
+    });
+    r = await resp.json();
+  } catch { r = null; }
+  finally { clearTimeout(tt); }
 
   if (r?.error === 'rate_limited') {
     return ok(res, { order: strip(o), retry_after: r.retry_after || 20 });
@@ -288,19 +292,17 @@ async function checkStatus(req, res) {
 
 // ============================================================
 // POST /api/order
-// Rate limit: 30 / 5 menit per IP
 // ============================================================
 async function getOrder(req, res) {
   const ip = getClientIp(req);
-  const r = rateLimit(`getOrd:${ip}`, 30, 300_000);
+  const r = await rateLimitPersistent('getOrd_5m', ip, 30, 300_000);
   if (!r.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r.retry_after} detik.`);
 
   const body = getBody(req);
   const { token } = body;
   if (!isTok(token)) return err(res, 400, 'Token tidak valid');
 
-  // Rate limit per token untuk cegah brute-force
-  const r2 = rateLimit(`getOrdT:${ip}:${token}`, 10, 60_000);
+  const r2 = await rateLimitPersistent('getOrdT_m', `${ip}:${token}`, 10, 60_000);
   if (!r2.ok) return err(res, 429, `Coba lagi ${r2.retry_after} detik.`);
 
   const o = await fb(`/orders/${token}`);
@@ -312,25 +314,36 @@ async function getOrder(req, res) {
 }
 
 // ============================================================
-// POST /api/view
-// Rate limit: 20 / menit per IP, 1x per (IP + produk) / 30 menit
+// POST /api/view — FIXED
+// - Cek produk ADA dulu (jangan bikin folder baru)
+// - Rate limit persistent
+// - Dedup: 1 IP 1 view per produk per 24 jam
 // ============================================================
 async function incView(req, res) {
   const ip = getClientIp(req);
-  const r1 = rateLimit(`view:${ip}`, 20, 60_000);
+
+  // Rate limit global IP: 20/menit
+  const r1 = await rateLimitPersistent('view_m', ip, 20, 60_000);
   if (!r1.ok) return err(res, 429, 'Terlalu banyak.');
 
   const body = getBody(req);
   const { id } = body;
   if (!id || !isIdSafe(id)) return err(res, 400, 'ID invalid');
 
-  // Dedup: 1 IP hanya boleh naikkan views produk yang sama 1x / 30 menit
-  const r2 = rateLimit(`viewD:${ip}:${id}`, 1, 1_800_000);
-  if (!r2.ok) return ok(res, { v: null, dedup: true });
+  // CEK PRODUK ADA — kalau tidak ada, JANGAN bikin folder baru
+  const prod = await fb(`/products/${encodeURIComponent(id)}`).catch(() => null);
+  if (!prod || typeof prod !== 'object' || !prod.n) {
+    return ok(res, { v: null, skip: true });
+  }
 
-  const cur = await fb(`/products/${encodeURIComponent(id)}/v`).catch(() => null);
-  const next = (Number(cur) || 0) + 1;
-  await fbSet(`/products/${encodeURIComponent(id)}/v`, next).catch(() => {});
+  // Dedup: 1 IP 1 view per produk per 24 jam
+  const r2 = await rateLimitPersistent('viewD_24h', `${ip}:${id}`, 1, 86_400_000);
+  if (!r2.ok) return ok(res, { v: prod.v || 0, dedup: true });
+
+  // Increment views
+  const cur = Number(prod.v) || 0;
+  const next = cur + 1;
+  await fbPatch(`/products/${encodeURIComponent(id)}`, { v: next }).catch(() => {});
   return ok(res, { v: next });
 }
 
@@ -340,7 +353,7 @@ async function incView(req, res) {
 async function adminOrders(req, res) {
   if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
   const ip = getClientIp(req);
-  const r = rateLimit(`admOrd:${ip}`, 60, 60_000);
+  const r = await rateLimitPersistent('admOrd_m', ip, 60, 60_000);
   if (!r.ok) return err(res, 429, 'Terlalu banyak.');
 
   const o = await fb('/orders') || {};
@@ -355,7 +368,7 @@ async function adminOrders(req, res) {
 async function adminAction(req, res) {
   if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
   const ip = getClientIp(req);
-  const r = rateLimit(`admAct:${ip}`, 60, 60_000);
+  const r = await rateLimitPersistent('admAct_m', ip, 60, 60_000);
   if (!r.ok) return err(res, 429, 'Terlalu banyak.');
 
   const body = getBody(req);
@@ -412,7 +425,7 @@ async function webhook(req, res) {
     let total = 0;
     req.on('data', c => {
       total += c.length;
-      if (total > 100_000) { reject(new Error('payload too large')); req.destroy(); return; }
+      if (total > 100_000) { reject(new Error('too large')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -459,7 +472,6 @@ async function webhook(req, res) {
 // Router
 // ============================================================
 export default async function handler(req, res) {
-  // Security headers dasar untuk semua response
   Object.entries(SEC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
 
   if (!FB_URL || !FB_SECRET) return err(res, 500, 'Server misconfigured');
@@ -467,29 +479,23 @@ export default async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname.replace(/^\/api\/?/, '').replace(/\/$/, '');
 
-  // Webhook: handle sebelum apapun, cek method dulu
   if (path === 'webhook') {
     if (req.method !== 'POST') return err(res, 405, 'Method not allowed');
     return webhook(req, res);
   }
 
-  // Semua endpoint hanya POST
   if (req.method !== 'POST') return err(res, 405, 'Method not allowed');
 
-  // Origin/referer check (kecuali admin yang pakai token)
   const isAdminPath = path === 'admin-orders' || path === 'admin-action';
   if (!isAdminPath) {
-    const oc = checkOrigin(req);
-    if (!oc.ok) return err(res, 403, 'Forbidden');
+    if (!checkOrigin(req).ok) return err(res, 403, 'Forbidden');
   }
 
-  // Content-Type harus JSON untuk endpoint non-webhook
   const ctype = req.headers['content-type'] || '';
   if (!ctype.toLowerCase().includes('application/json')) {
     return err(res, 415, 'Content-Type harus application/json');
   }
 
-  // Parse body
   if (!req.body) {
     const raw = await new Promise((resolve) => {
       const chunks = [];
