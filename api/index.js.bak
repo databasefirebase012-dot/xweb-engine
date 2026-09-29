@@ -1,9 +1,6 @@
 // ============================================================
-// XWEB ENGINE - Serverless API (Hardened v5)
+// XWEB ENGINE - Serverless API (Hardened v3)
 // by XRANS OFFICIAL
-// - Rate limit atomic (Firebase ETag transaction)
-// - Anomaly detection global (auto lockdown)
-// - Per-IP burst protection
 // ============================================================
 
 import crypto from 'crypto';
@@ -16,27 +13,6 @@ const BQ_SECRET = process.env.BUATQRIS_SECRET;
 const WH_SECRET = process.env.WEBHOOK_SECRET;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const APP_URL   = process.env.APP_URL || '';
-
-// ============================================================
-// KONFIGURASI ANTI-SPAM
-// ============================================================
-const CFG = {
-  // Rate limit per IP (per menit / per window)
-  ORDER_PER_MIN: 3,           // max 3 order / menit / IP
-  ORDER_PER_10MIN: 8,         // max 8 order / 10 menit / IP
-  ORDER_BURST_5S: 3,          // max 3 order / 5 detik / IP → lock IP
-  VIEW_PER_MIN: 15,
-  CHECK_PER_5MIN: 20,
-
-  // Anomaly detection GLOBAL (semua IP digabung)
-  GLOBAL_ORDER_5S: 8,         // 8 order / 5 detik global → lockdown
-  GLOBAL_ORDER_10S: 12,       // 12 order / 10 detik global → lockdown
-  GLOBAL_ORDER_60S: 30,       // 30 order / 60 detik global → lockdown
-
-  // Lockdown
-  LOCKDOWN_DURATION_MS: 5 * 60_000,   // lockdown 5 menit
-  IP_BLOCK_DURATION_MS: 15 * 60_000,  // block IP 15 menit kalau spam
-};
 
 // ============================================================
 // Security headers
@@ -54,9 +30,9 @@ function ok(res, data = {}) {
   Object.entries(SEC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
   return res.status(200).json({ ok: true, ...data });
 }
-function err(res, code, message, extra = {}) {
+function err(res, code, message) {
   Object.entries(SEC_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
-  return res.status(code).json({ ok: false, message, ...extra });
+  return res.status(code).json({ ok: false, message });
 }
 
 // ============================================================
@@ -84,21 +60,23 @@ function getBody(req) {
 // ============================================================
 // Firebase REST
 // ============================================================
-const fbAuth = `?auth=${encodeURIComponent(FB_SECRET)}`;
-
 async function fbFetch(url, opt = {}, timeoutMs = 8000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try { return await fetch(url, { ...opt, signal: ctrl.signal }); }
   finally { clearTimeout(t); }
 }
+const fbAuth = `?auth=${encodeURIComponent(FB_SECRET)}`;
 const fb = (path, opt = {}) => fbFetch(`${FB_URL}${path}.json${fbAuth}`, opt).then(r => r.json());
 const fbSet   = (p, v) => fb(p, { method: 'PUT',   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbPatch = (p, v) => fb(p, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbDel   = (p)    => fb(p, { method: 'DELETE' });
 
 // ============================================================
-// Rate Limit — Atomic Firebase ETag transaction
+// Rate Limit — DUA LAPIS, TIDAK BISA DILEWATI
+// Layer 1: in-memory (SELALU jalan, instan)
+// Layer 2: Firebase (cross-instance, kalau bisa)
+// Kalau salah satu bilang OVER → BLOCK
 // ============================================================
 const RL_MEM = new Map();
 setInterval(() => {
@@ -114,184 +92,31 @@ function checkMem(key, max, windowMs) {
   return { ok: e.c <= max, retry_after: Math.max(1, Math.ceil((e.r - now) / 1000)), count: e.c };
 }
 
-async function fbAtomicIncrement(path, windowMs, max) {
-  const url = `${FB_URL}${path}.json?auth=${encodeURIComponent(FB_SECRET)}`;
-  const now = Date.now();
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    let getResp;
-    try {
-      getResp = await fbFetch(url, {}, 6000);
-    } catch { return { ok: true, warn: 'fb-get-fail', count: 0 }; }
-
-    const etag = getResp.headers.get('etag') || 'null';
-    let cur;
-    try { cur = await getResp.json(); } catch { cur = null; }
-
-    let c, r;
-    if (cur && typeof cur === 'object' && cur.r > now) {
-      if (cur.c >= max) {
-        return { ok: false, retry_after: Math.ceil((cur.r - now) / 1000), count: cur.c };
-      }
-      c = cur.c + 1;
-      r = cur.r;
-    } else {
-      c = 1;
-      r = now + windowMs;
-    }
-
-    let putResp;
-    try {
-      putResp = await fbFetch(url, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'if-match': etag },
-        body: JSON.stringify({ c, r })
-      }, 6000);
-    } catch { return { ok: true, warn: 'fb-put-fail', count: c }; }
-
-    if (putResp.ok) return { ok: c <= max, count: c, retry_after: Math.ceil((r - now) / 1000) };
-
-    if (putResp.status === 412 || putResp.status === 409) {
-      await new Promise(r => setTimeout(r, 30 + Math.random() * 80));
-      continue;
-    }
-    return { ok: true, warn: 'fb-' + putResp.status, count: c };
-  }
-
-  return { ok: true, warn: 'fb-exhausted', count: 0 };
-}
-
 async function rateLimit(bucket, key, max, windowMs) {
+  // Layer 1 — IN-MEMORY (SELALU CEK DULU)
   const mem = checkMem(`${bucket}:${key}`, max, windowMs);
-  if (!mem.ok) return { ok: false, retry_after: mem.retry_after, layer: 'mem', count: mem.count };
+  if (!mem.ok) return { ok: false, retry_after: mem.retry_after, layer: 'mem' };
 
+  // Layer 2 — FIREBASE (cross-instance)
+  const now = Date.now();
   const hash = crypto.createHash('sha256').update(String(key)).digest('hex').slice(0, 16);
   const path = `/_rl/${bucket}/${hash}`;
 
   try {
-    const r = await fbAtomicIncrement(path, windowMs, max);
-    if (!r.ok) {
-      return {
-        ok: false,
-        retry_after: r.retry_after || Math.ceil(windowMs / 1000),
-        layer: 'fb',
-        count: r.count || max
-      };
-    }
-    return { ok: true, count: r.count };
-  } catch {
-    return { ok: true, warn: 'fb-err' };
-  }
-}
-
-// ============================================================
-// ANOMALY DETECTION — GLOBAL (semua IP)
-// Kalau terlalu banyak order dari semua IP sekaligus → lockdown
-// ============================================================
-async function recordOrderGlobal() {
-  // Pakai window kecil (dalam detik) — hitung berapa order dalam N detik terakhir
-  const now = Date.now();
-  const bucket = Math.floor(now / 1000); // per detik
-  const path = `/_anomaly/orders_per_sec/${bucket}`;
-
-  try {
-    // Increment counter per detik
-    const cur = await fb(path).catch(() => null);
-    const newCount = (Number(cur) || 0) + 1;
-    await fbSet(path, newCount).catch(() => {});
-
-    // Cleanup: hapus detik yang lebih lama dari 60 detik
-    if (Math.random() < 0.1) { // 10% chance cleanup biar tidak spam Firebase
-      const start = bucket - 70;
-      const end = bucket - 5;
-      for (let i = start; i < end; i++) {
-        fbDel(`/_anomaly/orders_per_sec/${i}`).catch(() => {});
+    const cur = await fb(path);
+    if (cur && typeof cur === 'object' && cur.r > now) {
+      if (cur.c >= max) {
+        return { ok: false, retry_after: Math.ceil((cur.r - now) / 1000), layer: 'fb' };
       }
+      await fbPatch(path, { c: (cur.c || 0) + 1 });
+      return { ok: true };
     }
-
-    return newCount;
-  } catch { return 0; }
-}
-
-async function countOrdersInWindow(seconds) {
-  const now = Date.now();
-  const currentBucket = Math.floor(now / 1000);
-  const startBucket = currentBucket - seconds;
-
-  let total = 0;
-  const keys = [];
-  for (let i = startBucket; i <= currentBucket; i++) keys.push(i);
-
-  // Ambil paralel
-  const results = await Promise.all(keys.map(k => fb(`/_anomaly/orders_per_sec/${k}`).catch(() => 0)));
-  for (const r of results) total += Number(r) || 0;
-  return total;
-}
-
-async function checkLockdown() {
-  try {
-    const lk = await fb('/_lockdown');
-    if (!lk || !lk.until) return { locked: false };
-    if (Date.now() < lk.until) return { locked: true, until: lk.until, reason: lk.reason };
-    // Expired — hapus
-    await fbDel('/_lockdown').catch(() => {});
-    return { locked: false };
-  } catch { return { locked: false }; }
-}
-
-async function activateLockdown(reason) {
-  const until = Date.now() + CFG.LOCKDOWN_DURATION_MS;
-  await fbSet('/_lockdown', {
-    until,
-    reason,
-    activated_at: Date.now()
-  }).catch(() => {});
-  return until;
-}
-
-// Per-IP block (untuk spam per IP)
-async function checkIpBlocked(ip) {
-  const hash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
-  try {
-    const b = await fb(`/_ipblock/${hash}`);
-    if (!b || !b.until) return { blocked: false };
-    if (Date.now() < b.until) return { blocked: true, until: b.until };
-    await fbDel(`/_ipblock/${hash}`).catch(() => {});
-    return { blocked: false };
-  } catch { return { blocked: false }; }
-}
-
-async function blockIp(ip, reason) {
-  const hash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
-  const until = Date.now() + CFG.IP_BLOCK_DURATION_MS;
-  await fbSet(`/_ipblock/${hash}`, { until, reason, ip_prefix: ip.slice(0, 20), ts: Date.now() }).catch(() => {});
-  return until;
-}
-
-// ============================================================
-// Anomaly check saat ada order baru
-// ============================================================
-async function runAnomalyCheck(ip) {
-  // 1. Cek global order rate — apakah saat ini spike?
-  const in5s = await countOrdersInWindow(5);
-  const in10s = await countOrdersInWindow(10);
-  const in60s = await countOrdersInWindow(60);
-
-  // Cek threshold
-  if (in5s >= CFG.GLOBAL_ORDER_5S) {
-    const until = await activateLockdown(`Spike ${in5s} order/5s`);
-    return { lockdown: true, until, reason: `Terlalu banyak order (${in5s} dalam 5 detik). Sistem masuk mode aman sementara.` };
+    await fbSet(path, { c: 1, r: now + windowMs });
+    return { ok: true };
+  } catch {
+    // Firebase gagal → tetap lanjut (in-memory sudah cek). Jangan fail-open total.
+    return { ok: true, warn: 'fb-unreachable' };
   }
-  if (in10s >= CFG.GLOBAL_ORDER_10S) {
-    const until = await activateLockdown(`Spike ${in10s} order/10s`);
-    return { lockdown: true, until, reason: `Terlalu banyak order (${in10s} dalam 10 detik). Sistem masuk mode aman sementara.` };
-  }
-  if (in60s >= CFG.GLOBAL_ORDER_60S) {
-    const until = await activateLockdown(`Spike ${in60s} order/60s`);
-    return { lockdown: true, until, reason: `Terlalu banyak order (${in60s} dalam 1 menit). Sistem masuk mode aman sementara.` };
-  }
-
-  return { lockdown: false };
 }
 
 // ============================================================
@@ -334,29 +159,9 @@ async function bqCall(params) {
 // ============================================================
 async function createOrder(req, res) {
   const ip = getClientIp(req);
-
-  // 0. Cek IP block
-  const ipBlk = await checkIpBlocked(ip);
-  if (ipBlk.blocked) {
-    const sisa = Math.ceil((ipBlk.until - Date.now()) / 1000);
-    return err(res, 429, `IP diblokir sementara. Coba lagi dalam ${sisa} detik.`);
-  }
-
-  // 1. Burst protection per IP — 3 order / 5 detik
-  const burst = await rateLimit('order_burst_5s', ip, CFG.ORDER_BURST_5S, 5000);
-  if (!burst.ok) {
-    // Spam per IP → block IP 15 menit
-    await blockIp(ip, `Burst ${burst.count || CFG.ORDER_BURST_5S} order/5s`);
-    await activateLockdown(`Burst per IP ${ip.slice(0, 15)}`);
-    return err(res, 429, 'Aktivitas tidak wajar terdeteksi. IP diblokir sementara.');
-  }
-
-  // 2. Rate limit per menit
-  const r1 = await rateLimit('order_m', ip, CFG.ORDER_PER_MIN, 60_000);
+  const r1 = await rateLimit('order_m', ip, 5, 60_000);
   if (!r1.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r1.retry_after} detik.`);
-
-  // 3. Rate limit per 10 menit
-  const r2 = await rateLimit('order_10m', ip, CFG.ORDER_PER_10MIN, 600_000);
+  const r2 = await rateLimit('order_10m', ip, 20, 600_000);
   if (!r2.ok) return err(res, 429, 'Batas order tercapai. Coba lagi nanti.');
 
   const body = getBody(req);
@@ -381,15 +186,6 @@ async function createOrder(req, res) {
   const valid = fetched.filter(p => p && p.a !== false && p.n && Number(p.p) >= 0);
   if (!valid.length) return err(res, 400, 'Produk tidak tersedia');
   if (valid.length !== ids.length) return err(res, 400, 'Beberapa produk tidak valid');
-
-  // 4. Catat order global untuk anomaly detection
-  await recordOrderGlobal();
-
-  // 5. Cek anomaly global
-  const anomaly = await runAnomalyCheck(ip);
-  if (anomaly.lockdown) {
-    return err(res, 503, anomaly.reason, { lockdown_until: anomaly.until });
-  }
 
   const total = valid.reduce((s, p) => s + Number(p.p || 0), 0);
   const token = 'XWEB-' + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -451,11 +247,7 @@ async function createOrder(req, res) {
 // ============================================================
 async function checkStatus(req, res) {
   const ip = getClientIp(req);
-
-  const ipBlk = await checkIpBlocked(ip);
-  if (ipBlk.blocked) return err(res, 429, 'IP diblokir sementara.');
-
-  const r1 = await rateLimit('chk_5m', ip, CFG.CHECK_PER_5MIN, 300_000);
+  const r1 = await rateLimit('chk_5m', ip, 30, 300_000);
   if (!r1.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r1.retry_after} detik.`);
 
   const body = getBody(req);
@@ -512,10 +304,6 @@ async function checkStatus(req, res) {
 // ============================================================
 async function getOrder(req, res) {
   const ip = getClientIp(req);
-
-  const ipBlk = await checkIpBlocked(ip);
-  if (ipBlk.blocked) return err(res, 429, 'IP diblokir sementara.');
-
   const r = await rateLimit('getOrd_5m', ip, 30, 300_000);
   if (!r.ok) return err(res, 429, `Terlalu banyak. Coba lagi ${r.retry_after} detik.`);
 
@@ -535,29 +323,33 @@ async function getOrder(req, res) {
 }
 
 // ============================================================
-// POST /api/view
+// POST /api/view — PENTING
+// - Cek produk ADA dulu
+// - Layer in-memory + Firebase
+// - Dedup per IP per produk per 24 jam
 // ============================================================
 async function incView(req, res) {
   const ip = getClientIp(req);
 
-  const ipBlk = await checkIpBlocked(ip);
-  if (ipBlk.blocked) return err(res, 429, 'IP diblokir sementara.');
-
-  const r1 = await rateLimit('view_m', ip, CFG.VIEW_PER_MIN, 60_000);
-  if (!r1.ok) return err(res, 429, `Rate limit. Coba lagi ${r1.retry_after} detik.`);
+  // Rate limit global per IP — WAJIB JALAN
+  const r1 = await rateLimit('view_m', ip, 20, 60_000);
+  if (!r1.ok) return err(res, 429, `Rate limit views. Coba lagi ${r1.retry_after} detik.`);
 
   const body = getBody(req);
   const { id } = body;
   if (!id || !isIdSafe(id)) return err(res, 400, 'ID invalid');
 
+  // Cek produk ada — JANGAN bikin folder baru
   const prod = await fb(`/products/${encodeURIComponent(id)}`).catch(() => null);
   if (!prod || typeof prod !== 'object' || !prod.n) {
     return ok(res, { v: null, skip: true });
   }
 
+  // Dedup per IP per produk per 24 jam
   const r2 = await rateLimit('viewD_24h', `${ip}:${id}`, 1, 86_400_000);
   if (!r2.ok) return ok(res, { v: prod.v || 0, dedup: true });
 
+  // Increment views
   const cur = Number(prod.v) || 0;
   const next = cur + 1;
   await fbPatch(`/products/${encodeURIComponent(id)}`, { v: next }).catch(() => {});
@@ -565,38 +357,7 @@ async function incView(req, res) {
 }
 
 // ============================================================
-// POST /api/lockdown-status — public read-only
-// ============================================================
-async function lockdownStatus(req, res) {
-  const lk = await checkLockdown();
-  return ok(res, {
-    locked: lk.locked,
-    until: lk.until || null,
-    reason: lk.reason || null,
-    server_ts: Date.now()
-  });
-}
-
-// ============================================================
-// POST /api/admin-unlock — admin bisa lepas lockdown
-// ============================================================
-async function adminUnlock(req, res) {
-  if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
-  await fbDel('/_lockdown').catch(() => {});
-  return ok(res, { message: 'Lockdown dilepas.' });
-}
-
-// ============================================================
-// POST /api/admin-reset-block — hapus semua IP block
-// ============================================================
-async function adminResetBlock(req, res) {
-  if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
-  await fbDel('/_ipblock').catch(() => {});
-  return ok(res, { message: 'Semua IP block dihapus.' });
-}
-
-// ============================================================
-// POST /api/debug-rl
+// POST /api/debug-rl — cek rate limit bekerja
 // ============================================================
 async function debugRl(req, res) {
   const ip = getClientIp(req);
@@ -607,6 +368,7 @@ async function debugRl(req, res) {
     rl_mem_size: RL_MEM.size
   };
 
+  // Test tulis ke Firebase
   try {
     await fbSet('/_rl/_debug', { ts: Date.now(), ip: ip.slice(0, 20) });
     result.fb_write = 'ok';
@@ -615,16 +377,7 @@ async function debugRl(req, res) {
     result.fb_write_err = String(e.message || e).slice(0, 80);
   }
 
-  const lk = await checkLockdown();
-  result.lockdown = lk;
-
-  const in5s = await countOrdersInWindow(5);
-  const in10s = await countOrdersInWindow(10);
-  const in60s = await countOrdersInWindow(60);
-  result.orders_in_5s = in5s;
-  result.orders_in_10s = in10s;
-  result.orders_in_60s = in60s;
-
+  // Test rate limit layer mem — limit 3 / 60 detik untuk test cepat
   const r = await rateLimit('debug', ip, 3, 60_000);
   result.rl_result = r;
 
@@ -643,13 +396,7 @@ async function adminOrders(req, res) {
   const o = await fb('/orders') || {};
   const list = Object.entries(o).map(([tok, v]) => ({ tok, ...v }))
     .sort((a, b) => (b.ts || 0) - (a.ts || 0));
-
-  const lk = await checkLockdown();
-  return ok(res, {
-    orders: list,
-    server_ts: Date.now(),
-    lockdown: lk
-  });
+  return ok(res, { orders: list, server_ts: Date.now() });
 }
 
 // ============================================================
@@ -672,11 +419,13 @@ async function adminAction(req, res) {
     await fbPatch(`/orders/${token}`, { status: 'paid', paid: Date.now() });
     return ok(res);
   }
+
   if (action === 'delete') {
     await fbDel(`/orders/${token}`);
     if (cur.txn) await fbDel(`/txnIndex/${cur.txn}`);
     return ok(res);
   }
+
   if (action === 'add_delivery') {
     const n = cleanStr(body.name, 120);
     const l = cleanStr(body.link, 500);
@@ -685,6 +434,7 @@ async function adminAction(req, res) {
     await fbSet(`/orders/${token}/dl`, dl);
     return ok(res);
   }
+
   if (action === 'remove_delivery') {
     const idx = Number(body.index);
     const dl = Array.isArray(cur.dl) ? [...cur.dl] : [];
@@ -692,6 +442,7 @@ async function adminAction(req, res) {
     await fbSet(`/orders/${token}/dl`, dl);
     return ok(res);
   }
+
   if (action === 'reply') {
     const m = String(body.message ?? '').slice(0, 20000);
     if (!m.trim()) return err(res, 400, 'Pesan kosong');
@@ -772,7 +523,7 @@ export default async function handler(req, res) {
 
   if (req.method !== 'POST') return err(res, 405, 'Method not allowed');
 
-  const isAdminPath = path === 'admin-orders' || path === 'admin-action' || path === 'admin-unlock' || path === 'admin-reset-block';
+  const isAdminPath = path === 'admin-orders' || path === 'admin-action';
   if (!isAdminPath) {
     if (!checkOrigin(req).ok) return err(res, 403, 'Forbidden');
   }
@@ -796,29 +547,14 @@ export default async function handler(req, res) {
     try { req.body = raw ? JSON.parse(raw) : {}; } catch { req.body = {}; }
   }
 
-  // LOCKDOWN CHECK — sebelum endpoint apapun (kecuali admin & status)
-  if (!isAdminPath && path !== 'lockdown-status' && path !== 'debug-rl') {
-    const lk = await checkLockdown();
-    if (lk.locked) {
-      const sisa = Math.ceil((lk.until - Date.now()) / 1000);
-      return err(res, 503, `Sistem dalam mode aman. Coba lagi ${sisa} detik.`, {
-        lockdown_until: lk.until,
-        reason: lk.reason
-      });
-    }
-  }
-
   switch (path) {
-    case 'create-order':    return createOrder(req, res);
-    case 'check-status':    return checkStatus(req, res);
-    case 'order':           return getOrder(req, res);
-    case 'view':            return incView(req, res);
-    case 'debug-rl':        return debugRl(req, res);
-    case 'lockdown-status': return lockdownStatus(req, res);
-    case 'admin-orders':    return adminOrders(req, res);
-    case 'admin-action':    return adminAction(req, res);
-    case 'admin-unlock':    return adminUnlock(req, res);
-    case 'admin-reset-block': return adminResetBlock(req, res);
-    default:                return err(res, 404, 'Not found');
+    case 'create-order': return createOrder(req, res);
+    case 'check-status': return checkStatus(req, res);
+    case 'order':        return getOrder(req, res);
+    case 'view':         return incView(req, res);
+    case 'debug-rl':     return debugRl(req, res);
+    case 'admin-orders': return adminOrders(req, res);
+    case 'admin-action': return adminAction(req, res);
+    default:             return err(res, 404, 'Not found');
   }
 }
