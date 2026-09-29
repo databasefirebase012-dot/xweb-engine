@@ -1,10 +1,10 @@
 // ============================================================
-// XWEB ENGINE - Frontend v6 · 3D EDITION
+// XWEB ENGINE - Frontend
 // by XRANS OFFICIAL
 // ============================================================
 
 // Auto-clear cache versi lama
-const BUILD = 'v6';
+const BUILD = 'v4';
 if (localStorage.getItem('xw_build') !== BUILD) {
   localStorage.setItem('xw_build', BUILD);
   if ('caches' in window) {
@@ -23,127 +23,6 @@ const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d }
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
 const FB = 'https://message-web1-default-rtdb.asia-southeast1.firebasedatabase.app';
-
-// ============================================================
-// 3D FX — PARTICLE FIELD + TILT + HERO PARALLAX
-// ============================================================
-const FX = (() => {
-  const cv = document.getElementById('fx');
-  if (!cv) return { init(){} };
-  const ctx = cv.getContext('2d', { alpha: true });
-  let W = 0, H = 0, DPR = Math.min(devicePixelRatio || 1, 2);
-  let parts = [], raf = 0, mouse = { x: .5, y: .5 };
-
-  function resize() {
-    W = innerWidth; H = innerHeight;
-    cv.width = W * DPR; cv.height = H * DPR;
-    cv.style.width = W + 'px'; cv.style.height = H + 'px';
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    parts = Array.from({ length: Math.min(80, Math.floor(W * H / 20000)) }, mk);
-  }
-  function mk() {
-    return {
-      x: Math.random() * W, y: Math.random() * H,
-      z: Math.random() * .8 + .2, r: Math.random() * 1.4 + .3,
-      vx: (Math.random() - .5) * .18, vy: (Math.random() - .5) * .18,
-      t: Math.random() * 100
-    };
-  }
-  const color = () => document.documentElement.dataset.t === 'light' ? '30,80,200' : '110,150,255';
-
-  function step() {
-    ctx.clearRect(0, 0, W, H);
-    const c = color();
-    for (const p of parts) {
-      p.x += p.vx + (mouse.x - .5) * p.z * .35;
-      p.y += p.vy + (mouse.y - .5) * p.z * .35;
-      if (p.x < -20) p.x = W + 20;
-      if (p.x > W + 20) p.x = -20;
-      if (p.y < -20) p.y = H + 20;
-      if (p.y > H + 20) p.y = -20;
-      const a = .12 + Math.sin((p.t += .02)) * .08 + p.z * .18;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r * p.z * 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${c},${a})`;
-      ctx.fill();
-    }
-    for (let i = 0; i < parts.length; i++) {
-      for (let j = i + 1; j < parts.length; j++) {
-        const a = parts[i], b = parts[j];
-        const dx = a.x - b.x, dy = a.y - b.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < 10000) {
-          const o = (1 - d2 / 10000) * .08;
-          ctx.strokeStyle = `rgba(${c},${o})`;
-          ctx.lineWidth = .5;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-    }
-    raf = requestAnimationFrame(step);
-  }
-  addEventListener('resize', resize, { passive: true });
-  addEventListener('pointermove', e => {
-    mouse.x = e.clientX / W;
-    mouse.y = e.clientY / H;
-  }, { passive: true });
-
-  return { init() { resize(); if (!raf) raf = requestAnimationFrame(step); } };
-})();
-
-const TILT = (() => {
-  function attach(el, max, scale) {
-    let raf = 0, tx = 0, ty = 0, cx = 0, cy = 0, mx = .5, my = .5;
-    function loop() {
-      cx += (tx - cx) * .12;
-      cy += (ty - cy) * .12;
-      el.style.transform = `perspective(1200px) rotateX(${cy.toFixed(2)}deg) rotateY(${cx.toFixed(2)}deg) scale(${scale})`;
-      el.style.setProperty('--mx', (mx * 100) + '%');
-      el.style.setProperty('--my', (my * 100) + '%');
-      if (Math.abs(tx - cx) > .01 || Math.abs(ty - cy) > .01) raf = requestAnimationFrame(loop);
-      else raf = 0;
-    }
-    const kick = () => { if (!raf) raf = requestAnimationFrame(loop) };
-    el.addEventListener('pointermove', e => {
-      const r = el.getBoundingClientRect();
-      mx = (e.clientX - r.left) / r.width;
-      my = (e.clientY - r.top) / r.height;
-      tx = (mx - .5) * 2 * max;
-      ty = -(my - .5) * 2 * max;
-      el.classList.add('tilting');
-      kick();
-    });
-    el.addEventListener('pointerleave', () => {
-      tx = 0; ty = 0;
-      el.classList.remove('tilting');
-      kick();
-    });
-  }
-  function scan() {
-    document.querySelectorAll('.pc:not([data-tilt])').forEach(el => { el.dataset.tilt = 1; attach(el, 6, 1.02) });
-    document.querySelectorAll('.fc:not([data-tilt])').forEach(el => { el.dataset.tilt = 1; attach(el, 8, 1.01) });
-    document.querySelectorAll('.dh:not([data-tilt])').forEach(el => { el.dataset.tilt = 1; attach(el, 6, 1.01) });
-  }
-  return { scan };
-})();
-
-// Hero parallax on scroll
-(function heroParallax() {
-  const plane = document.querySelector('.hero-plane');
-  const sc = document.querySelector('#s-home');
-  if (!plane || !sc) return;
-  sc.addEventListener('scroll', () => {
-    const y = sc.scrollTop;
-    if (y > 400) return;
-    plane.style.transform = `translateY(${y * .15}px) translateZ(${-y * .3}px) rotateX(${y * .015}deg)`;
-  }, { passive: true });
-})();
-
-// Boot FX
-FX.init();
 
 // ============================================================
 // ICONS
@@ -170,6 +49,13 @@ const IC = {
 const sv = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[k] || IC.box}</svg>`;
 const isUrl = s => /^https?:\/\//i.test(String(s || '').trim());
 
+const renderIcon = (icon, size = 34) => {
+  if (!icon) return sv('box');
+  if (isUrl(icon)) return sv('box'); // fallback kalau dipanggil tanpa cek url
+  return sv(icon);
+};
+
+// Render tile produk: URL -> full-bleed image, SVG -> warna + icon
 const tileHTML = (p, size, extra = '') => {
   if (isUrl(p.icon)) {
     return `<div class="tile img" ${extra}><img src="${esc(p.icon)}" alt="${esc(p.name || '')}" loading="lazy" decoding="async"></div>`;
@@ -255,7 +141,7 @@ const mn = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-wi
 const setT = t => {
   document.documentElement.dataset.t = t;
   $('#th').innerHTML = t === 'dark' ? sun : mn;
-  $('meta[name=theme-color]').content = t === 'dark' ? '#0A0C11' : '#EFF0F3';
+  $('meta[name=theme-color]').content = t === 'dark' ? '#0D111B' : '#EFEFE7';
 };
 setT(localStorage.xw_theme || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light'));
 
@@ -265,7 +151,7 @@ document.addEventListener('pointerdown', e => {
   const el = document.createElement('span');
   el.className = 'ripple';
   el.style.cssText = `width:${s}px;height:${s}px;left:${e.clientX - r.left - s / 2}px;top:${e.clientY - r.top - s / 2}px`;
-  b.appendChild(el); setTimeout(() => el.remove(), 700);
+  b.appendChild(el); setTimeout(() => el.remove(), 600);
 });
 
 // ============================================================
@@ -358,7 +244,6 @@ async function syncOrder(tok) {
 function renderAll() {
   renderHome(); renderGrid(); renderCart(); renderOrders(); upd();
   if (stack.includes('detail') && curDetail) renderDetail(curDetail);
-  setTimeout(TILT.scan, 80);
 }
 function renderSettings() {
   const b = (ST.badges || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 4);
@@ -384,11 +269,10 @@ function renderHome() {
     : '';
   const hs = $('#hs');
   if (hs) hs.onscroll = () => {
-    const w = hs.firstElementChild.offsetWidth + 14;
+    const w = hs.firstElementChild.offsetWidth + 10;
     const i = Math.min(feat.length - 1, Math.round(hs.scrollLeft / w));
     $$('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
-    const fi = $('#fi');
-    if (fi) fi.textContent = (i + 1) + '/' + feat.length;
+    $('#fi').textContent = (i + 1) + '/' + feat.length;
   };
   const pop = [...P].sort((a, b) => b.views - a.views).slice(0, 4);
   const mx = Math.max(1, ...P.map(p => p.views));
@@ -399,7 +283,6 @@ function renderHome() {
        <div class="mid"><h4>${esc(p.name)}</h4><div class="bar2"><i></i></div></div><small>${fv(p.views)}</small></div>`).join('')}</div>`
     : (ready ? '<div class="emp">Belum ada produk</div>' : '');
   live($('#hPop'));
-  setTimeout(TILT.scan, 60);
 }
 function renderGrid() {
   const cats = ['all', ...new Set(P.map(p => p.cat).filter(Boolean))];
@@ -420,7 +303,6 @@ function renderGrid() {
         <button class="ad ${cart.includes(p.id) ? 'ok' : ''}" data-act="add" data-v="${p.id}">${cart.includes(p.id) ? '✓' : '+'}</button></div></div>`).join('')
       : '<div class="emp">Tidak ada</div>';
   live($('#gr'));
-  setTimeout(TILT.scan, 60);
 }
 $('#q').oninput = e => { qs = e.target.value.toLowerCase().trim(); renderGrid() };
 
@@ -449,7 +331,7 @@ function badge(o) {
 function wa() {
   const n = String(ST.whatsapp || '').replace(/\D/g, '');
   return n
-    ? `<a class="bt o" style="margin:16px 22px 0;width:auto;display:inline-flex" href="https://wa.me/${n}" target="_blank" rel="noopener">Butuh bantuan? WhatsApp</a>`
+    ? `<a class="bt o" style="margin:16px 18px 0;width:auto" href="https://wa.me/${n}" target="_blank" rel="noopener">Butuh bantuan? WhatsApp</a>`
     : '';
 }
 function renderOrders() {
@@ -487,7 +369,7 @@ function renderDetail(id) {
   const rel = [...P.filter(x => x.cat === p.cat && x.id !== id), ...P.filter(x => x.cat !== p.cat && x.id !== id)].slice(0, 5);
   S('detail').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
-    <span class="ct" style="margin:0;color:var(--accent);font-family:var(--fm);font-size:11px;letter-spacing:.1em">${esc((p.cat || 'MODUL').toUpperCase())}</span>
+    <span class="ct" style="margin:0">${esc((p.cat || 'MODUL').toUpperCase())}</span>
     <button class="ib pop" data-act="bag">${bagI}<span class="bd ${cart.length ? 'on' : ''}">${cart.length}</span></button></div>
   <div class="dh ${url ? 'img' : ''}" ${url ? '' : `style="background:${pcol(p)}"`}>
     ${url ? `<img src="${esc(p.icon)}" alt="${esc(p.name)}" loading="lazy">` : sv(p.icon || 'box')}
@@ -500,8 +382,7 @@ function renderDetail(id) {
   <div class="grow"></div>
   <div class="bar"><div><small>${p.price ? 'harga' : 'akses'}</small>
     <b>${p.price ? rp(p.price) : 'Gratis'}</b></div>
-    <button class="bt ${inC ? 'g' : ''}" data-act="${inC ? 'checkout' : 'add'}" data-v="${id}">${inC ? 'Checkout →' : 'Tambah +'}</button></div>`;
-  setTimeout(TILT.scan, 40);
+    <button class="bt" data-act="${inC ? 'checkout' : 'add'}" data-v="${id}">${inC ? 'Checkout →' : 'Tambah +'}</button></div>`;
 }
 function view(id) {
   if (sessionStorage.getItem('v' + id)) return;
@@ -528,7 +409,7 @@ function openCheckout() {
   const b = load('xw_buyer', {});
   S('checkout').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
-    <span class="ct" style="margin:0;color:var(--accent);font-family:var(--fm);font-size:11px;letter-spacing:.1em">CHECKOUT</span><span style="width:38px"></span></div>
+    <span class="ct" style="margin:0">CHECKOUT</span><span style="width:38px"></span></div>
   <div class="sum"><small>${items.length} modul</small><b>${total ? rp(total) : 'Gratis'}</b></div>
   <div class="fm">
     <label>Nama<input id="fn" value="${esc(b.name || '')}" autocomplete="name" placeholder="Nama kamu"></label>
@@ -537,7 +418,7 @@ function openCheckout() {
   </div>
   <div class="grow"></div>
   <div class="bar"><div><small>Total</small><b>${total ? rp(total) : 'Gratis'}</b></div>
-    <button class="bt g" data-act="pay" style="min-width:150px">${total ? 'Bayar QRIS' : 'Ambil'}</button></div>`;
+    <button class="bt" data-act="pay" style="min-width:150px">${total ? 'Bayar QRIS' : 'Ambil'}</button></div>`;
   push('checkout');
 }
 async function pay(el) {
@@ -573,7 +454,7 @@ function copyTxt(t) {
 function renderOrder(tok) {
   const o = OD[tok], box = S('order');
   const head = `<div class="top2"><button class="ib pop" data-act="back">‹</button>
-    <span class="ct" style="margin:0;color:var(--accent);font-family:var(--fm);font-size:11px;letter-spacing:.1em">${esc(o ? o.code : 'PESANAN')}</span><span style="width:38px"></span></div>`;
+    <span class="ct" style="margin:0">${esc(o ? o.code : 'PESANAN')}</span><span style="width:38px"></span></div>`;
   if (o === undefined) return box.innerHTML = head + '<div class="em2"><i class="sp"></i></div>';
   if (o === null) return box.innerHTML = head + '<div class="em2"><h3>Pesanan tidak ditemukan</h3></div>';
 
@@ -662,14 +543,14 @@ function add(id, btn) {
     const r = btn.getBoundingClientRect(), t = tgt.getBoundingClientRect();
     const f = document.createElement('div');
     f.className = 'fly';
-    f.style.left = r.left + r.width / 2 - 10 + 'px';
-    f.style.top = r.top + r.height / 2 - 10 + 'px';
+    f.style.left = r.left + r.width / 2 - 8 + 'px';
+    f.style.top = r.top + r.height / 2 - 8 + 'px';
     document.body.appendChild(f);
     requestAnimationFrame(() => {
       f.style.transform = `translate(${t.left + t.width / 2 - r.left - r.width / 2}px,${t.top + t.height / 2 - r.top - r.height / 2}px) scale(.4)`;
       f.style.opacity = '.3';
     });
-    setTimeout(() => { f.remove(); bump() }, 750);
+    setTimeout(() => { f.remove(); bump() }, 700);
   } else bump();
   toast(byId(id).name + ' ditambah');
   renderCart(); upd();
@@ -712,41 +593,9 @@ document.addEventListener('click', e => {
 });
 
 // ============================================================
-// LOCKDOWN BANNER (backend safety mode)
-// ============================================================
-async function checkLockdown() {
-  try {
-    const r = await fetch('/api/lockdown-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    });
-    const j = await r.json();
-    if (j.ok && j.locked) showLockdown(j.until, j.reason);
-  } catch {}
-}
-function showLockdown(until, reason) {
-  if (document.getElementById('lockBanner')) return;
-  const b = document.createElement('div');
-  b.id = 'lockBanner';
-  b.innerHTML = `<b>Mode aman aktif</b><span>${esc(reason || 'Sistem sedang melindungi diri.')}</span><i id="lockCd"></i>`;
-  document.body.appendChild(b);
-  const cd = setInterval(() => {
-    const s = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    const el = document.getElementById('lockCd');
-    if (el) el.textContent = `Berakhir dalam ${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-    if (s <= 0) { clearInterval(cd); b.remove(); }
-  }, 1000);
-  setTimeout(() => checkLockdown(), 30000);
-}
-setTimeout(checkLockdown, 2500);
-
-// ============================================================
 // BOOT
 // ============================================================
 tab('home');
-setTimeout(TILT.scan, 400);
-setTimeout(TILT.scan, 1500);
 setInterval(() => {
   myOrders.forEach(tok => {
     const o = OD[tok];
