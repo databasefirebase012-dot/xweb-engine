@@ -9,7 +9,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css?v=6">
+<link rel="stylesheet" href="/style.css?v=7">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 <canvas id="fx" aria-hidden="true"></canvas>
@@ -34,6 +42,7 @@
 
     <div class="hero">
       <div class="hero-stage">
+        <canvas class="hero3d" id="hero3d" aria-hidden="true"></canvas>
         <div class="hero-plane">
           <h1>
             <span class="l"><i>XWEB</i></span>
@@ -50,6 +59,12 @@
         </button>
         <button class="bt o" data-act="tab" data-v="orders">Pesanan</button>
       </div>
+    </div>
+
+    <div class="floats3d" id="floats3d" aria-hidden="true">
+      <canvas class="float3d" data-shape="ico"></canvas>
+      <canvas class="float3d" data-shape="octa"></canvas>
+      <canvas class="float3d" data-shape="torus"></canvas>
     </div>
 
     <div id="hAnn"></div>
@@ -84,28 +99,30 @@
   <section class="scr push" id="s-checkout"></section>
   <section class="scr push" id="s-order"></section>
 
-  <nav class="tb" id="tb"><div class="sl" id="tsl"></div>
-    <button data-act="tab" data-v="home">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9H4v-9z"/></svg>
-      <span>Beranda</span>
-    </button>
-    <button data-act="tab" data-v="mod">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
-      <span>Modul</span>
-    </button>
-    <button data-act="tab" data-v="orders">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg>
-      <span>Pesanan</span>
-    </button>
-    <button data-act="tab" data-v="cart">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.4 12H6.4L5 7z"/><path d="M9 7a3 3 0 016 0"/></svg>
-      <span>Tas</span><span class="bd">0</span>
-    </button>
-  </nav>
-
   <div id="toast"></div>
 </div>
 
-<script type="module" src="/app.js?v=6"></script>
+<!-- NAV dipindah ke LUAR .app supaya tidak rusak di Android WebView -->
+<nav class="tb" id="tb"><div class="sl" id="tsl"></div>
+  <button data-act="tab" data-v="home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9H4v-9z"/></svg>
+    <span>Beranda</span>
+  </button>
+  <button data-act="tab" data-v="mod">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
+    <span>Modul</span>
+  </button>
+  <button data-act="tab" data-v="orders">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg>
+    <span>Pesanan</span>
+  </button>
+  <button data-act="tab" data-v="cart">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.4 12H6.4L5 7z"/><path d="M9 7a3 3 0 016 0"/></svg>
+    <span>Tas</span><span class="bd">0</span>
+  </button>
+</nav>
+
+<script type="module" src="/app.js?v=7"></script>
+<script type="module" src="/3d.js?v=7"></script>
 </body>
 </html>
