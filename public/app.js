@@ -1,7 +1,6 @@
 // ============================================================
-// XWEB ENGINE — Frontend
+// XWEB ENGINE - Frontend
 // by XRANS OFFICIAL
-// Semua data server via REST /api/* — tidak ada secret di sini.
 // ============================================================
 
 const $ = (s, e = document) => e.querySelector(s);
@@ -14,19 +13,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d } catch { return d } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
-// ============================================================
-// Firebase REST (read-only untuk products & settings)
-// ============================================================
 const FB = 'https://message-web1-default-rtdb.asia-southeast1.firebasedatabase.app';
-async function fbRead(path) {
-  const r = await fetch(`${FB}/${path}.json`, { cache: 'no-store' });
-  if (!r.ok) throw new Error('Fetch gagal');
-  return r.json();
-}
 
-// ============================================================
-// Icons
-// ============================================================
 const IC = {
   route:'<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6a3 3 0 003-3V8M6 16V8"/>',
   bolt:'<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/>',
@@ -45,18 +33,22 @@ const IC = {
   mail:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 7l9 6 9-6"/>',
   star:'<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3z"/>'
 };
+
 const sv = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[k] || IC.box}</svg>`;
+const isUrl = s => /^https?:\/\//i.test(String(s || '').trim());
+const renderIcon = (icon, size = 34) => {
+  if (!icon) return sv('box');
+  if (isUrl(icon)) return `<img src="${esc(icon)}" style="width:${size}px;height:${size}px;object-fit:contain" alt="" loading="lazy">`;
+  return sv(icon);
+};
 const eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>';
 const bagI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.4 12H6.4L5 7z"/><path d="M9 7a3 3 0 016 0"/></svg>';
 const COL = ['#C9D8FF', '#F6E3A1', '#BFE3CF', '#F5C9B0', '#E3D3EE', '#CFE6F0'];
 
-// ============================================================
-// State
-// ============================================================
 let P = [], ST = {}, ready = false, cat = 'all', qs = '';
 let cart = load('xw_cart', []);
-let myOrders = load('xw_orders', []);   // array token
-const OD = {};                          // token → order object
+let myOrders = load('xw_orders', []);
+const OD = {};
 const TABS = ['home', 'mod', 'orders', 'cart'];
 let cur = null, stack = [], curDetail = null, curTok = null;
 
@@ -65,9 +57,6 @@ const pcol = p => p.col || COL[0];
 const saveCart = () => save('xw_cart', cart);
 const saveOrders = () => save('xw_orders', myOrders);
 
-// ============================================================
-// Navigasi
-// ============================================================
 const io = new IntersectionObserver(es => es.forEach(e => {
   if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
 }), { threshold: .08 });
@@ -111,9 +100,6 @@ function pop() {
 }
 function popAll() { while (stack.length) pop() }
 
-// ============================================================
-// Toast + theme + ripple
-// ============================================================
 let tt;
 const toast = m => {
   const t = $('#toast'); t.textContent = m; t.classList.add('on');
@@ -137,9 +123,6 @@ document.addEventListener('pointerdown', e => {
   b.appendChild(el); setTimeout(() => el.remove(), 600);
 });
 
-// ============================================================
-// API client
-// ============================================================
 const api = async (path, body) => {
   const r = await fetch('/api/' + path, {
     method: 'POST',
@@ -152,55 +135,64 @@ const api = async (path, body) => {
 };
 
 // ============================================================
-// Load data awal
+// REAL-TIME STREAM (produk & settings)
 // ============================================================
-async function boot() {
-  try {
-    const [prodRaw, settings] = await Promise.all([
-      fbRead('products'),
-      fbRead('settings/store')
-    ]);
-    P = Object.entries(prodRaw || {}).map(([id, p]) => ({
-      id, ...p,
-      price: Number(p.p) || 0,
-      views: Number(p.v) || 0
-    }))
-      .filter(p => p.a !== false && p.n)
-      .sort((a, b) => (a.o || 0) - (b.o || 0) || (b.ts || 0) - (a.ts || 0));
+let rawProducts = {}, rawSettings = {};
 
-    // normalize field short → long untuk view
-    P = P.map(p => ({
-      ...p,
-      name: p.n, desc: p.d, price: p.p, cat: p.c, icon: p.i,
-      color: p.col, tag: p.t, featured: p.f, active: p.a,
-      createdAt: p.ts, views: p.v
-    }));
+function openStream(path, onData) {
+  if (typeof EventSource === 'undefined') return null;
+  const es = new EventSource(`${FB}/${path}.json`);
+  es.addEventListener('put', ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.path === '/') onData({ full: d.data });
+      else onData({ patch: { [d.path.slice(1)]: d.data } });
+    } catch {}
+  });
+  es.addEventListener('patch', ev => {
+    try {
+      const d = JSON.parse(ev.data);
+      onData({ patch: d.data });
+    } catch {}
+  });
+  es.onerror = () => { es.close(); setTimeout(() => openStream(path, onData), 3000); };
+  return es;
+}
 
-    ST = settings || {};
-    // normalize settings
-    ST = {
-      whatsapp: ST.wa || '',
-      announcement: ST.ann || '',
-      badges: ST.bdg || ''
-    };
+openStream('products', ({ full, patch }) => {
+  if (full !== undefined) rawProducts = full || {};
+  else if (patch) rawProducts = Object.assign({}, rawProducts, patch);
+  processProducts(rawProducts);
+});
+openStream('settings/store', ({ full, patch }) => {
+  if (full !== undefined) rawSettings = full || {};
+  else if (patch) rawSettings = Object.assign({}, rawSettings, patch);
+  processSettings(rawSettings);
+});
 
-    ready = true;
-
-    // Bersihkan cart dari produk yang sudah hilang
-    const n = cart.length;
-    cart = cart.filter(id => byId(id));
-    if (cart.length !== n) saveCart();
-
-    renderAll();
-    renderSettings();
-  } catch (e) {
-    ready = true;
-    renderAll();
-    toast('Gagal memuat produk');
-  }
-
-  // Sinkronkan status order lama (paralel, tapi tidak memblok UI)
-  Promise.all(myOrders.map(tok => syncOrder(tok))).catch(() => {});
+function processProducts(raw) {
+  P = Object.entries(raw || {}).map(([id, p]) => ({ id, ...p }))
+    .filter(p => p.a !== false && p.n)
+    .sort((a, b) => (a.o || 0) - (b.o || 0) || (b.ts || 0) - (a.ts || 0));
+  P = P.map(p => ({
+    ...p,
+    name: p.n, desc: p.d, price: p.p, cat: p.c, icon: p.i,
+    color: p.col, tag: p.t, featured: p.f, active: p.a,
+    createdAt: p.ts, views: p.v
+  }));
+  ready = true;
+  const n = cart.length;
+  cart = cart.filter(id => byId(id));
+  if (cart.length !== n) saveCart();
+  renderAll();
+}
+function processSettings(raw) {
+  ST = {
+    whatsapp: raw?.wa || '',
+    announcement: raw?.ann || '',
+    badges: raw?.bdg || ''
+  };
+  renderSettings();
 }
 
 async function syncOrder(tok) {
@@ -209,34 +201,39 @@ async function syncOrder(tok) {
     OD[tok] = j.order;
     if (curTok === tok && stack.includes('order')) renderOrder(tok);
     renderOrders();
-  } catch { /* skip */ }
+  } catch {}
 }
 
+// Auto-poll status order yang pending, biar halaman order pembeli update sendiri
+setInterval(() => {
+  myOrders.forEach(tok => {
+    const o = OD[tok];
+    if (!o || o.status === 'pending') syncOrder(tok);
+  });
+}, 15000);
+
 // ============================================================
-// Render
+// RENDER
 // ============================================================
 function renderAll() {
   renderHome(); renderGrid(); renderCart(); renderOrders(); upd();
   if (stack.includes('detail') && curDetail) renderDetail(curDetail);
 }
-
 function renderSettings() {
   const b = (ST.badges || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 4);
   $('#pills').innerHTML = b.map(x => `<span class="pl">${esc(x)}</span>`).join('');
   $('#hAnn').innerHTML = ST.announcement ? `<div class="ann">${esc(ST.announcement)}</div>` : '';
   renderOrders();
 }
-
 function renderHome() {
   const feat = P.filter(p => p.featured);
   $('#hFeat').innerHTML = feat.length
     ? `<div class="st">Unggulan <small id="fi">1/${feat.length}</small></div>
        <div class="hs" id="hs">${feat.map(p => `<div class="fc" data-act="open" data-v="${p.id}" style="background:${pcol(p)}">
-       <div class="big">${sv(p.icon)}</div><span class="tg">${fv(p.views)} views</span>
+       <div class="big">${renderIcon(p.icon, 120)}</div><span class="tg">${fv(p.views)} views</span>
        <div class="rw"><div><h3>${esc(p.name)}</h3><div class="pr">${p.price ? rp(p.price) : 'Gratis'}</div></div><div class="go">→</div></div></div>`).join('')}</div>
        <div class="dots" id="dots">${feat.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>`
     : '';
-
   const hs = $('#hs');
   if (hs) hs.onscroll = () => {
     const w = hs.firstElementChild.offsetWidth + 10;
@@ -244,34 +241,30 @@ function renderHome() {
     $$('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
     $('#fi').textContent = (i + 1) + '/' + feat.length;
   };
-
   const pop = [...P].sort((a, b) => b.views - a.views).slice(0, 4);
   const mx = Math.max(1, ...P.map(p => p.views));
   $('#hPop').innerHTML = pop.length
     ? `<div class="st">Terpopuler <button class="lk" data-act="tab" data-v="mod">Semua →</button></div>
        <div class="lst">${pop.map(p => `<div class="li rv" data-act="open" data-v="${p.id}" style="--w:${Math.max(6, p.views / mx * 100)}%">
-       <div class="tile" style="background:${pcol(p)}">${sv(p.icon)}</div>
+       <div class="tile" style="background:${pcol(p)}">${renderIcon(p.icon, 22)}</div>
        <div class="mid"><h4>${esc(p.name)}</h4><div class="bar2"><i></i></div></div><small>${fv(p.views)}</small></div>`).join('')}</div>`
     : (ready ? '<div class="emp">Belum ada produk</div>' : '');
   live($('#hPop'));
 }
-
 function renderGrid() {
   const cats = ['all', ...new Set(P.map(p => p.cat).filter(Boolean))];
   if (!cats.includes(cat)) cat = 'all';
   $('#chips').innerHTML = cats.map(c =>
     `<button class="ch ${c === cat ? 'on' : ''}" data-act="cat" data-v="${esc(c)}">${c === 'all' ? 'Semua' : esc(c)}</button>`
   ).join('');
-
   const l = P.filter(p => (cat === 'all' || p.cat === cat) && p.name.toLowerCase().includes(qs));
   $('#ct').textContent = l.length;
-
   $('#gr').innerHTML = !ready
     ? '<div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>'
     : l.length
       ? l.map(p => `<div class="pc rv" data-act="open" data-v="${p.id}">
         <div class="vw">${eye}${fv(p.views)}</div>${p.tag ? `<div class="tgp">${esc(p.tag)}</div>` : ''}
-        <div class="tile" style="background:${pcol(p)}">${sv(p.icon)}</div><h4>${esc(p.name)}</h4>
+        <div class="tile" style="background:${pcol(p)}">${renderIcon(p.icon, 34)}</div><h4>${esc(p.name)}</h4>
         <div class="m"><span class="p">${p.price ? rp(p.price) : 'Gratis'}</span>
         <button class="ad ${cart.includes(p.id) ? 'ok' : ''}" data-act="add" data-v="${p.id}">${cart.includes(p.id) ? '✓' : '+'}</button></div></div>`).join('')
       : '<div class="emp">Tidak ada</div>';
@@ -285,7 +278,7 @@ function renderCart() {
   $('#cn').textContent = items.length;
   $('#cBox').innerHTML = items.length
     ? `<div class="cl">${items.map(p => `<div class="ci">
-        <div class="tile" data-act="open" data-v="${p.id}" style="background:${pcol(p)}">${sv(p.icon)}</div>
+        <div class="tile" data-act="open" data-v="${p.id}" style="background:${pcol(p)}">${renderIcon(p.icon, 22)}</div>
         <div class="mid"><h4>${esc(p.name)}</h4><small>${p.price ? rp(p.price) : 'Gratis'}</small></div>
         <button class="rm pop" data-act="rm" data-v="${p.id}">✕</button></div>`).join('')}</div>
        <div class="grow"></div>
@@ -295,7 +288,6 @@ function renderCart() {
        <h3>Tas kosong</h3>
        <button class="bt g" data-act="tab" data-v="mod">Jelajahi modul</button></div>`;
 }
-
 function badge(o) {
   if (!o) return ['dead', '—'];
   if (o.status === 'paid') return ['paid', 'Lunas'];
@@ -322,7 +314,6 @@ function renderOrders() {
       }).join('')}</div>${wa()}`
     : `<div class="em2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/></svg><h3>Belum ada pesanan</h3></div>${wa()}`;
 }
-
 function upd() {
   $$('.bd').forEach(b => { b.textContent = cart.length; b.classList.toggle('on', cart.length > 0) });
   $$('.ad').forEach(b => {
@@ -334,36 +325,30 @@ const bump = () => $$('.bd').forEach(b => {
   b.classList.remove('b'); void b.offsetWidth; b.classList.add('b');
 });
 
-// ============================================================
-// Detail
-// ============================================================
-function renderDetail(id, keep) {
+function renderDetail(id) {
   const p = byId(id); if (!p) { if (stack.includes('detail')) pop(); return }
   const inC = cart.includes(id);
   const rel = [...P.filter(x => x.cat === p.cat && x.id !== id), ...P.filter(x => x.cat !== p.cat && x.id !== id)].slice(0, 5);
-
   S('detail').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
     <span class="ct" style="margin:0">${esc((p.cat || 'MODUL').toUpperCase())}</span>
     <button class="ib pop" data-act="bag">${bagI}<span class="bd ${cart.length ? 'on' : ''}">${cart.length}</span></button></div>
-  <div class="dh" style="background:${pcol(p)}">${sv(p.icon)}</div>
+  <div class="dh" style="background:${pcol(p)}">${renderIcon(p.icon, 84)}</div>
   <div class="dm"><div class="ct">${fv(p.views)} VIEWS</div><h3>${esc(p.name)}</h3>
     ${p.desc ? `<p>${esc(p.desc)}</p>` : ''}
     ${rel.length ? `<div class="st">Terkait</div><div class="rel">${rel.map(r =>
-      `<div class="rc" data-act="open" data-v="${r.id}"><div class="tile" style="background:${pcol(r)}">${sv(r.icon)}</div><h4>${esc(r.name)}</h4></div>`
+      `<div class="rc" data-act="open" data-v="${r.id}"><div class="tile" style="background:${pcol(r)}">${renderIcon(r.icon, 26)}</div><h4>${esc(r.name)}</h4></div>`
     ).join('')}</div>` : ''}</div>
   <div class="grow"></div>
   <div class="bar"><div><small>${p.price ? 'harga' : 'akses'}</small>
     <b>${p.price ? rp(p.price) : 'Gratis'}</b></div>
     <button class="bt" data-act="${inC ? 'checkout' : 'add'}" data-v="${id}">${inC ? 'Checkout →' : 'Tambah +'}</button></div>`;
 }
-
 function view(id) {
   if (sessionStorage.getItem('v' + id)) return;
   sessionStorage.setItem('v' + id, '1');
   api('view', { id }).catch(() => {});
 }
-
 function openDetail(id) {
   curDetail = id; view(id);
   if (stack[stack.length - 1] === 'detail') {
@@ -374,15 +359,11 @@ function openDetail(id) {
   renderDetail(id); push('detail');
 }
 
-// ============================================================
-// Checkout
-// ============================================================
 function openCheckout() {
   const items = cart.map(byId).filter(Boolean);
   if (!items.length) return toast('Tas kosong');
   const total = items.reduce((s, p) => s + p.price, 0);
   const b = load('xw_buyer', {});
-
   S('checkout').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
     <span class="ct" style="margin:0">CHECKOUT</span><span style="width:38px"></span></div>
@@ -397,12 +378,10 @@ function openCheckout() {
     <button class="bt" data-act="pay" style="min-width:150px">${total ? 'Bayar QRIS' : 'Ambil'}</button></div>`;
   push('checkout');
 }
-
 async function pay(el) {
   const name = $('#fn').value.trim(), contact = $('#fc').value.trim();
   if (name.length < 2 || contact.length < 5) return toast('Lengkapi nama & kontak');
   save('xw_buyer', { name, contact });
-
   const h = el.innerHTML; el.innerHTML = '<i class="sp"></i>'; el.disabled = true;
   try {
     const j = await api('create-order', { items: cart, name, contact });
@@ -417,26 +396,19 @@ async function pay(el) {
   }
 }
 
-// ============================================================
-// Order
-// ============================================================
 function openOrder(tok) {
   curTok = tok;
   renderOrder(tok);
   if (stack[stack.length - 1] !== 'order') push('order');
-  // fetch order fresh
   syncOrder(tok);
 }
-
 function copyTxt(t) {
   navigator.clipboard?.writeText(t).then(() => toast('Disalin ✓')).catch(() => toast('Gagal menyalin'));
 }
-
 function renderOrder(tok) {
   const o = OD[tok], box = S('order');
   const head = `<div class="top2"><button class="ib pop" data-act="back">‹</button>
     <span class="ct" style="margin:0">${esc(o ? o.code : 'PESANAN')}</span><span style="width:38px"></span></div>`;
-
   if (o === undefined) return box.innerHTML = head + '<div class="em2"><i class="sp"></i></div>';
   if (o === null) return box.innerHTML = head + '<div class="em2"><h3>Pesanan tidak ditemukan</h3></div>';
 
@@ -455,11 +427,19 @@ function renderOrder(tok) {
       return `<div class="dl"><div>${esc(d.n)}</div><span>Hubungi admin</span></div>`;
     }).join('');
 
+    // Balasan admin - hanya terlihat kalau status paid
+    const reply = o.reply && o.reply.m ? `
+      <div class="st">Pesan dari Admin</div>
+      <div class="dls">
+        <div class="dl" style="display:block;white-space:pre-wrap;line-height:1.6;font-weight:600">${esc(o.reply.m)}</div>
+      </div>` : '';
+
     box.innerHTML = head + `<div style="overflow:auto;flex:1;padding-bottom:30px">
       <div class="dn"><div class="cf">${cf}</div>
         <div class="ck"><svg viewBox="0 0 112 112"><circle cx="56" cy="56" r="54"/><path d="M34 58l16 16 30-34"/></svg></div>
         <h2>Lunas</h2><div class="cd">${esc(o.code)}</div></div>
       ${dl ? `<div class="dls">${dl}</div>` : ''}
+      ${reply}
       ${wa()}</div>`;
     return;
   }
@@ -471,12 +451,11 @@ function renderOrder(tok) {
       <div class="cdw">Sisa waktu <b id="cd">--:--</b></div></div>
       <div class="sum"><small>Total bayar · ${(o.items || []).length} modul</small><b>${rp(o.tot)}</b></div>
       <div class="stt"><i class="pu"></i>Menunggu pembayaran</div>
-      <div class="acts"><button class="bt o" data-act="check">Cek status</button>
-      ${o.pay ? `<a class="bt g" href="${esc(o.pay)}" target="_blank" rel="noopener">Halaman bayar ↗</a>` : ''}</div>
+      <div class="acts"><button class="bt" data-act="check">Cek status</button></div>
       ${wa()}</div>`;
     const img = $('#qrimg');
     if (img) img.onerror = () => {
-      img.replaceWith(Object.assign(document.createElement('div'), { className: 'hint', textContent: 'QR gagal dimuat. Buka halaman bayar.' }));
+      img.replaceWith(Object.assign(document.createElement('div'), { className: 'hint', textContent: 'QR gagal dimuat. Hubungi admin.' }));
     };
     return;
   }
@@ -485,7 +464,6 @@ function renderOrder(tok) {
     <h2>${txt}</h2></div>
     <div class="acts" style="padding-top:22px"><button class="bt g" data-act="tab" data-v="mod">Pesan lagi</button></div>${wa()}`;
 }
-
 async function checkStatus(silent) {
   const tok = curTok; if (!tok) return;
   try {
@@ -497,8 +475,6 @@ async function checkStatus(silent) {
     if (!silent) toast('Gagal mengecek');
   }
 }
-
-// Hitung mundur
 setInterval(() => {
   const o = OD[curTok], el = $('#cd');
   if (!o || !el || !o.exp || !stack.includes('order')) return;
@@ -506,20 +482,14 @@ setInterval(() => {
   if (s <= 0) { renderOrder(curTok); renderOrders(); return }
   el.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 }, 1000);
-
-// Auto-cek tiap 25s kalau masih pending
 setInterval(() => {
   const o = OD[curTok];
   if (o && o.status === 'pending' && stack.includes('order')) checkStatus(true);
 }, 25000);
 
-// ============================================================
-// Cart add
-// ============================================================
 function add(id, btn) {
   if (cart.includes(id)) return toast('Sudah ada di tas');
   cart.push(id); saveCart(); vib(12);
-
   const tgt = stack.includes('detail') ? $('#s-detail [data-act=bag]') : $('#tb button:last-child');
   if (btn && tgt) {
     const r = btn.getBoundingClientRect(), t = tgt.getBoundingClientRect();
@@ -534,15 +504,11 @@ function add(id, btn) {
     });
     setTimeout(() => { f.remove(); bump() }, 700);
   } else bump();
-
   toast(byId(id).name + ' ditambah');
   renderCart(); upd();
   if (stack.includes('detail') && curDetail) renderDetail(curDetail);
 }
 
-// ============================================================
-// Actions
-// ============================================================
 const A = {
   tab: v => tab(v),
   back: () => pop(),
@@ -569,15 +535,10 @@ const A = {
     localStorage.setItem('xw_theme', t); setT(t);
   }
 };
-
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   e.preventDefault(); vib(6);
   A[el.dataset.act]?.(el.dataset.v, el);
 });
 
-// ============================================================
-// Init
-// ============================================================
 tab('home');
-boot();

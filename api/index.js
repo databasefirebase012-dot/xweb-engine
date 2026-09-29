@@ -1,7 +1,6 @@
 // ============================================================
-// XWEB ENGINE — Serverless API
+// XWEB ENGINE - Serverless API
 // by XRANS OFFICIAL
-// Semua endpoint digabung di sini. Env var HANYA di server.
 // ============================================================
 
 import crypto from 'crypto';
@@ -12,15 +11,16 @@ const BQ_BASE   = process.env.BUATQRIS_BASE || 'https://api.buatqris.site';
 const BQ_ID     = process.env.BUATQRIS_ID;
 const BQ_SECRET = process.env.BUATQRIS_SECRET;
 const WH_SECRET = process.env.WEBHOOK_SECRET;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 
-// ---------- Helper: Firebase REST ----------
+// ---------- Firebase REST ----------
 const fb = (path, opt = {}) =>
   fetch(`${FB_URL}${path}.json?auth=${encodeURIComponent(FB_SECRET)}`, opt).then(r => r.json());
 const fbSet   = (p, v) => fb(p, { method: 'PUT',   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbPatch = (p, v) => fb(p, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
 const fbDel   = (p)    => fb(p, { method: 'DELETE' });
 
-// ---------- Helper: BuatQris ----------
+// ---------- BuatQris ----------
 const bq = (params) =>
   fetch(BQ_BASE, {
     method: 'POST',
@@ -28,17 +28,21 @@ const bq = (params) =>
     body: new URLSearchParams({ account_id: BQ_ID, secret_token: BQ_SECRET, ...params }).toString()
   }).then(r => r.json()).catch(() => null);
 
-// ---------- Helper: response ----------
+// ---------- Response ----------
 const ok  = (res, data = {}) => res.status(200).json({ ok: true, ...data });
 const err = (res, code, message) => res.status(code).json({ ok: false, message });
 
-// ---------- Helper: validasi ----------
+// ---------- Validation ----------
 const cleanStr = (s, max) => String(s ?? '').trim().slice(0, max);
 const isTok = (s) => /^XWEB-[A-Z0-9]{6}$/i.test(String(s || ''));
+const isAdmin = (req) => {
+  const t = req.headers['x-admin-token'] || req.body?.admin_token || '';
+  return ADMIN_TOKEN && t && t.length === ADMIN_TOKEN.length &&
+    crypto.timingSafeEqual(Buffer.from(t), Buffer.from(ADMIN_TOKEN));
+};
 
 // ============================================================
-// Endpoint: POST /api/create-order
-// Body: { items: [id], name, contact }
+// POST /api/create-order
 // ============================================================
 async function createOrder(req, res) {
   const { items, name, contact } = req.body || {};
@@ -48,7 +52,6 @@ async function createOrder(req, res) {
   if (nm.length < 2) return err(res, 400, 'Nama tidak valid');
   if (ct.length < 5) return err(res, 400, 'Kontak tidak valid');
 
-  // Ambil produk dari Firebase — server-side authoritative (harga tidak dipercaya dari client)
   const ids = [...new Set(items.map(String))].slice(0, 20);
   const fetched = await Promise.all(ids.map(async id => {
     const p = await fb(`/products/${encodeURIComponent(id)}`);
@@ -74,13 +77,11 @@ async function createOrder(req, res) {
   };
   await fbSet(`/orders/${token}`, order);
 
-  // Gratis → langsung paid
   if (total === 0) {
     await fbPatch(`/orders/${token}`, { status: 'paid', tot: 0, paid: Date.now() });
     return ok(res, { token, free: true });
   }
 
-  // Berbayar → panggil BuatQris
   const r = await bq({
     action: 'api_create_qris',
     amount: String(total),
@@ -99,7 +100,7 @@ async function createOrder(req, res) {
   const d = r.data || {};
   await fbPatch(`/orders/${token}`, {
     status: 'pending',
-    tot: Number(d.total_amount) || total,        // total_amount termasuk kode unik
+    tot: Number(d.total_amount) || total,
     fee: Number(d.admin_fee) || 0,
     qr:  d.qr_url || '',
     pay: d.payment_url || '',
@@ -107,7 +108,6 @@ async function createOrder(req, res) {
     txn: d.transaction_id || null
   });
 
-  // Index txn → token untuk webhook
   if (d.transaction_id) {
     await fbSet(`/txnIndex/${d.transaction_id}`, { token });
   }
@@ -116,8 +116,7 @@ async function createOrder(req, res) {
 }
 
 // ============================================================
-// Endpoint: POST /api/check-status
-// Body: { token }  → kembalikan status order (tanpa _lastCheck)
+// POST /api/check-status
 // ============================================================
 async function checkStatus(req, res) {
   const { token } = req.body || {};
@@ -132,7 +131,6 @@ async function checkStatus(req, res) {
     return ok(res, { order: strip(o) });
   }
 
-  // Rate limit: 1x/20s
   const now = Date.now();
   if (o._lastCheck && now - o._lastCheck < 20000) {
     return ok(res, {
@@ -167,12 +165,25 @@ async function checkStatus(req, res) {
 }
 
 // ============================================================
-// Endpoint: POST /api/view  Body: { id }  → increment views
+// POST /api/order - baca order by token (publik, sengaja dibatasi)
+// ============================================================
+async function getOrder(req, res) {
+  const { token } = req.body || {};
+  if (!isTok(token)) return err(res, 400, 'Token tidak valid');
+  const o = await fb(`/orders/${token}`);
+  if (!o) return err(res, 404, 'Order tidak ditemukan');
+  delete o._lastCheck;
+  // Balasan admin hanya terlihat kalau status sudah paid
+  if (o.status !== 'paid') delete o.reply;
+  return ok(res, { order: o });
+}
+
+// ============================================================
+// POST /api/view
 // ============================================================
 async function incView(req, res) {
   const { id } = req.body || {};
   if (!id || String(id).length > 80) return err(res, 400, 'ID invalid');
-  // Pakai transaction Firebase via REST: read + write (race ringan, cukup untuk views)
   const p = await fb(`/products/${encodeURIComponent(id)}/v`);
   const next = (Number(p) || 0) + 1;
   await fbSet(`/products/${encodeURIComponent(id)}/v`, next);
@@ -180,11 +191,73 @@ async function incView(req, res) {
 }
 
 // ============================================================
-// Endpoint: POST /api/webhook  → callback dari BuatQris
-// Header X-BuatQris-Signature: sha256=<hmac>
+// POST /api/admin-orders - list order (butuh ADMIN_TOKEN)
+// ============================================================
+async function adminOrders(req, res) {
+  if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
+  const o = await fb('/orders') || {};
+  const list = Object.entries(o).map(([tok, v]) => ({ tok, ...v }))
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return ok(res, { orders: list, server_ts: Date.now() });
+}
+
+// ============================================================
+// POST /api/admin-action - edit order (butuh ADMIN_TOKEN)
+// body: { token, action, ...payload }
+// action: mark_paid | delete | add_delivery | remove_delivery | reply
+// ============================================================
+async function adminAction(req, res) {
+  if (!isAdmin(req)) return err(res, 401, 'Admin token salah');
+  const { token, action } = req.body || {};
+  if (!isTok(token)) return err(res, 400, 'Token invalid');
+
+  const cur = await fb(`/orders/${token}`);
+  if (!cur) return err(res, 404, 'Order tidak ditemukan');
+
+  if (action === 'mark_paid') {
+    await fbPatch(`/orders/${token}`, { status: 'paid', paid: Date.now() });
+    return ok(res);
+  }
+
+  if (action === 'delete') {
+    await fbDel(`/orders/${token}`);
+    if (cur.txn) await fbDel(`/txnIndex/${cur.txn}`);
+    return ok(res);
+  }
+
+  if (action === 'add_delivery') {
+    const { name, link } = req.body || {};
+    const n = cleanStr(name, 120);
+    const l = cleanStr(link, 500);
+    if (!n) return err(res, 400, 'Nama delivery wajib');
+    const dl = Array.isArray(cur.dl) ? [...cur.dl, { n, l }] : [{ n, l }];
+    await fbSet(`/orders/${token}/dl`, dl);
+    return ok(res);
+  }
+
+  if (action === 'remove_delivery') {
+    const { index } = req.body || {};
+    const dl = Array.isArray(cur.dl) ? [...cur.dl] : [];
+    if (index >= 0 && index < dl.length) dl.splice(index, 1);
+    await fbSet(`/orders/${token}/dl`, dl);
+    return ok(res);
+  }
+
+  if (action === 'reply') {
+    const { message } = req.body || {};
+    const m = String(message ?? '').slice(0, 20000); // batas aman 20.000 karakter
+    if (!m.trim()) return err(res, 400, 'Pesan kosong');
+    await fbSet(`/orders/${token}/reply`, { m, ts: Date.now() });
+    return ok(res);
+  }
+
+  return err(res, 400, 'Action tidak dikenal');
+}
+
+// ============================================================
+// POST /api/webhook
 // ============================================================
 async function webhook(req, res) {
-  // Body mentah untuk verifikasi HMAC. Vercel default JSON parser — kita ambil raw manual.
   const raw = await new Promise((resolve, reject) => {
     const chunks = [];
     req.on('data', c => chunks.push(c));
@@ -224,10 +297,9 @@ async function webhook(req, res) {
 }
 
 // ============================================================
-// Router utama
+// Router
 // ============================================================
 export default async function handler(req, res) {
-  // CORS — hanya untuk request dari domain sendiri (same-origin) → tolak cross-origin
   const origin = req.headers.origin || '';
   const host   = req.headers.host || '';
   if (origin && !origin.includes(host)) {
@@ -236,14 +308,11 @@ export default async function handler(req, res) {
 
   if (!FB_URL || !FB_SECRET) return err(res, 500, 'Server misconfigured');
 
-  // Ambil path setelah /api/
   const url = new URL(req.url, `http://${host}`);
   const path = url.pathname.replace(/^\/api\/?/, '').replace(/\/$/, '');
 
-  // Webhook butuh raw body → handle sebelum JSON parse
   if (path === 'webhook') return webhook(req, res);
 
-  // Parse JSON body untuk endpoint lain
   if (req.method === 'POST' && !req.body) {
     const raw = await new Promise((resolve) => {
       const chunks = [];
@@ -258,7 +327,10 @@ export default async function handler(req, res) {
   switch (path) {
     case 'create-order': return createOrder(req, res);
     case 'check-status': return checkStatus(req, res);
+    case 'order':        return getOrder(req, res);
     case 'view':         return incView(req, res);
+    case 'admin-orders': return adminOrders(req, res);
+    case 'admin-action': return adminAction(req, res);
     default:             return err(res, 404, 'Not found');
   }
 }
