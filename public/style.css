@@ -36,6 +36,7 @@ input{font:inherit;color:inherit;user-select:text}
   background:var(--bg);
 }
 
+/* di desktop tetap batasi biar tidak terlalu lebar */
 @media(min-width:900px){
   html,body{background:color-mix(in srgb,var(--bg) 90%,#000)}
   .app{
@@ -222,7 +223,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .fc:active .big{transform:rotate(25deg) scale(1.05)}
 .fc .big img{
   width:100%;height:100%;
-  object-fit:cover;object-position:top right;
+  object-fit:contain;object-position:top right;
   display:block;
 }
 .fc .big svg{
@@ -284,11 +285,11 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 .tile svg{width:34px;height:34px;color:#0E1626}
 .tile img{
-  width:100%;
-  height:100%;
-  max-width:100%;
-  max-height:100%;
-  object-fit:cover;
+  width:70%;
+  height:70%;
+  max-width:70%;
+  max-height:70%;
+  object-fit:contain;
   object-position:center;
   display:block;
 }
@@ -326,15 +327,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   border-radius:var(--r);padding:10px;position:relative;
 }
 .pc:active .tile{transform:rotate(-4deg) scale(.96)}
-.pc h4{
-  font-size:15px;
-  font-weight:800;
-  letter-spacing:-.02em;
-  padding:0 2px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
+.pc h4{font-size:15px;font-weight:800;letter-spacing:-.02em;padding:0 2px}
 .pc .m{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding:0 2px}
 .pc .p{font-size:13px;font-weight:700;color:var(--mute)}
 .ad{
@@ -430,11 +423,11 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   animation:flt 3.4s ease-in-out infinite;
 }
 .dh img{
-  width:100%;
-  height:100%;
-  max-width:100%;
-  max-height:100%;
-  object-fit:cover;
+  width:60%;
+  height:60%;
+  max-width:60%;
+  max-height:60%;
+  object-fit:contain;
   object-position:center;
   display:block;
   animation:flt 3.4s ease-in-out infinite;
@@ -463,9 +456,9 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .rc .tile{height:64px;margin-bottom:8px}
 .rc .tile svg{width:26px;height:26px}
 .rc .tile img{
-  width:100%;height:100%;
-  max-width:100%;max-height:100%;
-  object-fit:cover;
+  width:70%;height:70%;
+  max-width:70%;max-height:70%;
+  object-fit:contain;
 }
 .rc h4{font-size:13.5px;font-weight:800;padding:0 2px 2px}
 
