@@ -1207,9 +1207,12 @@ h1 .l.sub i{
   border-radius:var(--r);
   flex:none;
 }
+
+/* Push screens (detail/checkout/order) — nav FIXED, jadi bar harus ngangkat */
 .push .bar{
-  bottom:calc(env(safe-area-inset-bottom) + 14px);
-  margin:18px var(--pad) calc(env(safe-area-inset-bottom) + 16px);
+  position:sticky;
+  bottom:calc(var(--tb) + env(safe-area-inset-bottom) + 14px);
+  margin:18px var(--pad) calc(var(--tb) + env(safe-area-inset-bottom) + 22px);
 }
 
 /* ============================================================
@@ -1867,6 +1870,19 @@ h1 .l.sub i{
   padding:48px var(--pad) 0;
   font-family:var(--fm);
   text-transform:uppercase;
+}
+
+/* ============================================================
+   36. WHATSAPP CTA — full width, di atas nav
+   ============================================================ */
+.wa-wrap{
+  display:flex;
+  padding:16px var(--pad) calc(var(--tb) + env(safe-area-inset-bottom) + 20px);
+  margin-top:auto;
+}
+.wa-wrap .bt{
+  width:100%;
+  max-width:100%;
 }
 
 /* ============================================================
