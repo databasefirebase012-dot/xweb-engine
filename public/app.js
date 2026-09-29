@@ -12,8 +12,7 @@ if (localStorage.getItem('xw_build') !== BUILD) {
   }
 }
 
-const $ = (s, e = document) => e.querySelector(s);
-const $$ = (s, e = document) => [...e.querySelectorAll(s)];
+const $ = (s, e = document) => e.querySelector(s); const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 const S = n => $('#s-' + n);
 const rp = n => 'Rp ' + Number(n || 0).toLocaleString('id-ID');
 const vib = n => navigator.vibrate && navigator.vibrate(n);
@@ -53,7 +52,8 @@ const FALLBACK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const renderIcon = (icon, size = 34) => {
   if (!icon) return sv('box');
   if (isUrl(icon)) {
-    return `<img src="${esc(icon)}" alt="" loading="lazy" onerror="this.parentNode.insertAdjacentHTML('beforeend','${FALLBACK_ICON.replace(/'/g, "\\'")}');this.remove()">`;
+    const safeSvg = FALLBACK_ICON.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    return `<img src="${esc(icon)}" alt="" loading="lazy" onerror="this.parentNode.insertAdjacentHTML('beforeend','${safeSvg}');this.remove()">`;
   }
   return sv(icon);
 };
@@ -85,15 +85,8 @@ const io = new IntersectionObserver(es => es.forEach(e => {
 }), { threshold: .08 });
 
 function enter(s) {
-  $$('.rv', s).forEach((el, i) => {
-    io.unobserve(el); el.classList.remove('in');
-    el.style.transitionDelay = (i % 4) * .06 + 's';
-    io.observe(el);
-  });
-}
-function live(box) {
-  const s = box.closest('.scr');
-  if (s && s.classList.contains('on')) $$('.rv', box).forEach(el => el.classList.add('in'));
+  $$('.rv', s).forEach((el, i) => {     io.unobserve(el); el.classList.remove('in');     el.style.transitionDelay = (i \% 4) * .06 + 's';     io.observe(el);   }); } function live(box) {   const s = box.closest('.scr');   if (s && s.classList.contains('on')) $$
+('.rv', box).forEach(el => el.classList.add('in'));
 }
 function tab(n) {
   if (stack.length) popAll();
@@ -255,11 +248,7 @@ function renderHome() {
        <div class="rw"><div><h3>${esc(p.name)}</h3><div class="pr">${p.price ? rp(p.price) : 'Gratis'}</div></div><div class="go">→</div></div></div>`).join('')}</div>
        <div class="dots" id="dots">${feat.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>`
     : '';
-  const hs = $('#hs');
-  if (hs) hs.onscroll = () => {
-    const w = hs.firstElementChild.offsetWidth + 10;
-    const i = Math.min(feat.length - 1, Math.round(hs.scrollLeft / w));
-    $$('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
+  const hs = $('#hs');   if (hs) hs.onscroll = () => {     const w = hs.firstElementChild.offsetWidth + 10;     const i = Math.min(feat.length - 1, Math.round(hs.scrollLeft / w));     $$('#dots i').forEach((d, k) => d.classList.toggle('on', k === i));
     $('#fi').textContent = (i + 1) + '/' + feat.length;
   };
   const pop = [...P].sort((a, b) => b.views - a.views).slice(0, 4);
@@ -295,7 +284,7 @@ $('#q').oninput = e => { qs = e.target.value.toLowerCase().trim(); renderGrid() 
 
 function renderCart() {
   const items = cart.map(byId).filter(Boolean);
-  const total = items.reduce((s, p) => s + p.price, 0);
+  const total = items.reduce((s, p) => s + (Number(p.price) || 0), 0);
   $('#cn').textContent = items.length;
   $('#cBox').innerHTML = items.length
     ? `<div class="cl">${items.map(p => `<div class="ci">
@@ -322,7 +311,7 @@ function wa() {
     : '';
 }
 function renderOrders() {
-  const l = myOrders.filter(t => OD[t] !== undefined && OD[t] !== null);
+  const l = myOrders.filter(t => OD[t] !== null);
   $('#oBox').innerHTML = l.length
     ? `<div class="lst" style="padding-top:14px">${l.map(t => {
         const o = OD[t]; if (!o) return `<div class="od"><div class="mid"><h4>Memuat…</h4></div></div>`;
@@ -337,12 +326,8 @@ function renderOrders() {
 }
 function upd() {
   $$('.bd').forEach(b => { b.textContent = cart.length; b.classList.toggle('on', cart.length > 0) });
-  $$('.ad').forEach(b => {
-    const o = cart.includes(b.dataset.v);
-    b.textContent = o ? '✓' : '+'; b.classList.toggle('ok', o);
-  });
-}
-const bump = () => $$('.bd').forEach(b => {
+  $$('.ad').forEach(b => {     const o = cart.includes(b.dataset.v);     b.textContent = o ? '✓' : '+'; b.classList.toggle('ok', o);   }); } const bump = () => $$
+('.bd').forEach(b => {
   b.classList.remove('b'); void b.offsetWidth; b.classList.add('b');
 });
 
@@ -389,7 +374,7 @@ function openDetail(id) {
 function openCheckout() {
   const items = cart.map(byId).filter(Boolean);
   if (!items.length) return toast('Tas kosong');
-  const total = items.reduce((s, p) => s + p.price, 0);
+  const total = items.reduce((s, p) => s + (Number(p.price) || 0), 0);
   const b = load('xw_buyer', {});
   S('checkout').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
@@ -580,6 +565,11 @@ document.addEventListener('click', e => {
 // BOOT
 // ============================================================
 tab('home');
+
+myOrders.forEach(tok => {
+  if (!OD[tok] || OD[tok].status === 'pending') syncOrder(tok);
+});
+
 setInterval(() => {
   myOrders.forEach(tok => {
     const o = OD[tok];
