@@ -1,4 +1,10 @@
-const BUILD = 'v4';
+// ============================================================
+// XWEB ENGINE - Frontend
+// by XRANS OFFICIAL
+// ============================================================
+
+// Auto-clear cache versi baru
+const BUILD = 'v5';
 if (localStorage.getItem('xw_build') !== BUILD) {
   localStorage.setItem('xw_build', BUILD);
   if ('caches' in window) {
@@ -42,11 +48,12 @@ const IC = {
 const sv = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[k] || IC.box}</svg>`;
 const isUrl = s => /^https?:\/\//i.test(String(s || '').trim());
 
-// Fungsi ikon yang sudah kebal dari bug
+// Menggunakan Data URI dengan format lengkap yang sangat kebal bug
+const fallbackSvg = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg>`);
+
 const renderIcon = (icon, size = 34) => {
   if (!icon) return sv('box');
   if (isUrl(icon)) {
-    const fallbackSvg = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg>`);
     return `<img src="${esc(icon)}" alt="" loading="lazy" onerror="this.onerror=null; this.src='${fallbackSvg}';">`;
   }
   return sv(icon);
@@ -62,6 +69,9 @@ const COL = ['#C9D8FF', '#F6E3A1', '#BFE3CF', '#F5C9B0', '#E3D3EE', '#CFE6F0'];
 let P = [], ST = {}, ready = false, cat = 'all', qs = '';
 let cart = load('xw_cart', []);
 let myOrders = load('xw_orders', []);
+if (!Array.isArray(cart)) cart = [];
+if (!Array.isArray(myOrders)) myOrders = [];
+
 const OD = {};
 const TABS = ['home', 'mod', 'orders', 'cart'];
 let cur = null, stack = [], curDetail = null, curTok = null;
