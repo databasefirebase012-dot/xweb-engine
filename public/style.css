@@ -3,7 +3,6 @@
    by XRANS OFFICIAL
    ============================================================ */
 
-/* ===== 1. VARIABEL & RESET ===== */
 :root{
   --bg:#EFEFE7; --card:#FAFAF5; --ink:#0E1626; --mute:#737A85; --line:#D6D9CF;
   --b:#2952E3; --bt:#fff; --y:#F6E3A1; --r:16px; --tb:62px;
@@ -25,15 +24,31 @@ body{
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 a{color:inherit;text-decoration:none}
 input{font:inherit;color:inherit;user-select:text}
-.app{position:relative;max-width:430px;height:100dvh;margin:0 auto;overflow:hidden;background:var(--bg)}
-@media(min-width:431px){
-  html,body{background:color-mix(in srgb,var(--bg) 90%,#000)}
-  .app{box-shadow:0 0 0 1px var(--line)}
+
+/* ===== APP - FULL WIDTH ===== */
+.app{
+  position:relative;
+  width:100%;
+  max-width:100%;
+  height:100dvh;
+  margin:0 auto;
+  overflow:hidden;
+  background:var(--bg);
 }
+
+/* di desktop tetap batasi biar tidak terlalu lebar */
+@media(min-width:900px){
+  html,body{background:color-mix(in srgb,var(--bg) 90%,#000)}
+  .app{
+    max-width:720px;
+    box-shadow:0 0 0 1px var(--line);
+  }
+}
+
 .pop{transition:transform .25s var(--ease)}
 .pop:active{transform:scale(.88)}
 
-/* ===== 2. SCREEN LAYOUT ===== */
+/* ===== SCREEN LAYOUT ===== */
 .scr{
   position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;
   background:var(--bg);opacity:0;visibility:hidden;transform:translateX(28px);
@@ -55,7 +70,7 @@ input{font:inherit;color:inherit;user-select:text}
 .cbox{flex:1;display:flex;flex-direction:column}
 .grow{flex:1}
 
-/* ===== 3. TOP BAR ===== */
+/* ===== TOP BAR ===== */
 .top,.top2{
   position:sticky;top:0;z-index:30;
   padding:calc(env(safe-area-inset-top) + 12px) 18px 12px;
@@ -85,7 +100,7 @@ input{font:inherit;color:inherit;user-select:text}
 }
 .ib svg{width:18px;height:18px}
 
-/* ===== 4. BADGE ===== */
+/* ===== BADGE ===== */
 .bd{
   position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;
   border-radius:9px;background:var(--b);color:var(--bt);
@@ -98,7 +113,7 @@ input{font:inherit;color:inherit;user-select:text}
 @keyframes bump{50%{transform:scale(1.5)}}
 @keyframes fade{from{opacity:0;transform:translateY(10px)}}
 
-/* ===== 5. BOTTOM NAV ===== */
+/* ===== BOTTOM NAV ===== */
 .tb{
   position:absolute;left:0;right:0;bottom:0;z-index:40;
   height:calc(var(--tb) + env(safe-area-inset-bottom));
@@ -125,12 +140,12 @@ input{font:inherit;color:inherit;user-select:text}
 .tb svg{width:22px;height:22px}
 .tb .bd{top:7px;right:calc(50% - 22px)}
 
-/* ===== 6. REVEAL ANIMASI ===== */
+/* ===== REVEAL ===== */
 .rv{opacity:0;transform:translateY(22px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
 .rv.in{opacity:1;transform:none}
 .rv.in:active{transform:scale(.97)}
 
-/* ===== 7. HERO ===== */
+/* ===== HERO ===== */
 .hero{padding:16px 18px 4px}
 h1{font-size:46px;line-height:.94;letter-spacing:-.05em;font-weight:800}
 h1 .l{display:block;overflow:hidden}
@@ -147,7 +162,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   background:var(--y);color:#2b2712;font-size:14px;font-weight:700;
 }
 
-/* ===== 8. BUTTON ===== */
+/* ===== BUTTON ===== */
 .bt{
   height:50px;border-radius:15px;
   background:var(--ink);color:var(--bg);
@@ -174,7 +189,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ===== 9. SEKSI ===== */
+/* ===== SEKSI ===== */
 .st{
   display:flex;justify-content:space-between;align-items:center;
   padding:26px 18px 12px;
@@ -183,7 +198,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .st small{font-size:13px;color:var(--mute);font-weight:700}
 .lk{font-size:13px;color:var(--b);font-weight:700}
 
-/* ===== 10. FEATURED CAROUSEL ===== */
+/* ===== FEATURED CAROUSEL ===== */
 .hs{
   display:flex;gap:10px;overflow-x:auto;
   scroll-snap-type:x mandatory;
@@ -200,19 +215,32 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 .fc:active{transform:scale(.96)}
 .fc .big{
-  position:absolute;right:-18px;top:-18px;
-  width:120px;height:120px;opacity:.2;
+  position:absolute;right:0;top:0;
+  width:120px;height:120px;opacity:1;
+  pointer-events:none;
   transition:transform .8s var(--ease);
 }
-.fc:active .big{transform:rotate(25deg) scale(1.15)}
+.fc:active .big{transform:rotate(25deg) scale(1.05)}
+.fc .big img{
+  width:100%;height:100%;
+  object-fit:contain;object-position:top right;
+  display:block;
+}
+.fc .big svg{
+  width:100%;height:100%;
+  padding:18px;
+  opacity:.25;
+  color:#0E1626;
+}
 .fc .tg{
   align-self:flex-start;
   font-size:11px;font-weight:800;
   padding:4px 9px;border-radius:99px;
   background:#0E1626;color:#fff;
+  position:relative;z-index:2;
 }
-.fc h3{font-size:25px;font-weight:800;letter-spacing:-.035em;line-height:1}
-.fc .rw{display:flex;justify-content:space-between;align-items:flex-end}
+.fc h3{font-size:25px;font-weight:800;letter-spacing:-.035em;line-height:1;position:relative;z-index:2}
+.fc .rw{display:flex;justify-content:space-between;align-items:flex-end;position:relative;z-index:2}
 .fc .pr{font-size:14px;font-weight:700;opacity:.7;margin-top:4px}
 .go{
   width:38px;height:38px;border-radius:12px;
@@ -227,7 +255,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 .dots i.on{width:20px;background:var(--ink)}
 
-/* ===== 11. LIST (Terpopuler) ===== */
+/* ===== LIST (Terpopuler) ===== */
 .lst{display:flex;flex-direction:column;gap:8px;padding:0 18px}
 .li{
   display:flex;align-items:center;gap:12px;
@@ -247,16 +275,26 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .in .bar2 i{width:var(--w)}
 .li small{font-size:12px;color:var(--mute);font-weight:700}
 
-/* ===== 12. TILE (ikon di card) ===== */
+/* ===== TILE (ikon di card) ===== */
 .tile{
   height:96px;border-radius:12px;
   display:grid;place-items:center;
   margin-bottom:10px;
   transition:transform .5s var(--ease);
+  overflow:hidden;
 }
 .tile svg{width:34px;height:34px;color:#0E1626}
+.tile img{
+  width:70%;
+  height:70%;
+  max-width:70%;
+  max-height:70%;
+  object-fit:contain;
+  object-position:center;
+  display:block;
+}
 
-/* ===== 13. SEARCH ===== */
+/* ===== SEARCH ===== */
 .sea{
   display:flex;align-items:center;gap:8px;
   height:44px;background:var(--card);
@@ -268,7 +306,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .sea svg{width:18px;height:18px;color:var(--mute);flex:none}
 .sea input{flex:1;border:0;outline:0;background:none;font-weight:700;font-size:15px;min-width:0}
 
-/* ===== 14. CHIPS ===== */
+/* ===== CHIPS ===== */
 .chips{display:flex;gap:6px;overflow-x:auto;padding-top:10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .ch{
@@ -280,8 +318,10 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .ch.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .ch:active{transform:scale(.92)}
 
-/* ===== 15. PRODUK GRID ===== */
+/* ===== PRODUK GRID ===== */
 .gr{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px 0}
+@media(min-width:600px){.gr{grid-template-columns:1fr 1fr 1fr}}
+@media(min-width:900px){.gr{grid-template-columns:repeat(4,1fr)}}
 .pc{
   background:var(--card);border:1px solid var(--line);
   border-radius:var(--r);padding:10px;position:relative;
@@ -301,7 +341,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .ad:active{transform:scale(.8)}
 .ad.ok{background:var(--b);color:var(--bt);transform:rotate(360deg)}
 
-/* ===== 16. VIEWS BADGE & TAG ===== */
+/* ===== VIEWS BADGE & TAG ===== */
 .vw{
   position:absolute;top:18px;left:18px;
   font-size:10.5px;font-weight:800;
@@ -318,7 +358,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 .emp{grid-column:1/-1;text-align:center;padding:60px 18px;color:var(--mute);font-weight:700}
 
-/* ===== 17. SKELETON ===== */
+/* ===== SKELETON ===== */
 .sk{
   height:150px;border-radius:var(--r);
   background:linear-gradient(90deg,var(--card),var(--line),var(--card));
@@ -327,7 +367,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 @keyframes sh{to{background-position:-200% 0}}
 
-/* ===== 18. STICKY BOTTOM BAR ===== */
+/* ===== STICKY BAR ===== */
 .bar{
   position:sticky;bottom:calc(var(--tb) + env(safe-area-inset-bottom) + 12px);
   margin:14px 18px 0;
@@ -342,7 +382,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .bar .bt{width:auto;padding:0 22px;height:46px;border-radius:13px;background:var(--b);color:var(--bt)}
 .push .bar{bottom:calc(env(safe-area-inset-bottom) + 14px);margin:14px 18px calc(env(safe-area-inset-bottom) + 14px)}
 
-/* ===== 19. CART ===== */
+/* ===== CART ===== */
 .cl{padding:0 18px}
 .ci{
   display:flex;align-items:center;gap:12px;
@@ -361,7 +401,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   font-weight:800;
 }
 
-/* ===== 20. EMPTY STATE ===== */
+/* ===== EMPTY ===== */
 .em2{
   flex:1;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:14px;
@@ -372,18 +412,32 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .em2 h3{font-size:24px;font-weight:800;letter-spacing:-.03em}
 @keyframes flt{50%{transform:translateY(-8px) rotate(-4deg)}}
 
-/* ===== 21. DETAIL PRODUK ===== */
+/* ===== DETAIL PRODUK ===== */
 .dh{
-  margin:14px 18px 0;border-radius:26px;height:230px;
+  margin:14px 18px 0;border-radius:26px;height:260px;
   display:grid;place-items:center;position:relative;overflow:hidden;
   animation:fade .6s var(--ease) both;
 }
-.dh svg{width:84px;height:84px;color:#0E1626;animation:flt 3.4s ease-in-out infinite}
+.dh svg{
+  width:84px;height:84px;color:#0E1626;
+  animation:flt 3.4s ease-in-out infinite;
+}
+.dh img{
+  width:60%;
+  height:60%;
+  max-width:60%;
+  max-height:60%;
+  object-fit:contain;
+  object-position:center;
+  display:block;
+  animation:flt 3.4s ease-in-out infinite;
+}
 .dh::after{
   content:"";position:absolute;
   width:260px;height:260px;border-radius:50%;
   border:2px solid rgba(14,22,38,.12);
   animation:rng 3s ease-out infinite;
+  pointer-events:none;
 }
 @keyframes rng{from{transform:scale(.4);opacity:1}to{transform:scale(1.3);opacity:0}}
 .dm{padding:20px 18px 0;animation:fade .6s .1s var(--ease) both}
@@ -401,9 +455,14 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .rc:active{transform:scale(.94)}
 .rc .tile{height:64px;margin-bottom:8px}
 .rc .tile svg{width:26px;height:26px}
+.rc .tile img{
+  width:70%;height:70%;
+  max-width:70%;max-height:70%;
+  object-fit:contain;
+}
 .rc h4{font-size:13.5px;font-weight:800;padding:0 2px 2px}
 
-/* ===== 22. CHECKOUT ===== */
+/* ===== CHECKOUT ===== */
 .sum{
   margin:14px 18px 0;background:var(--b);color:var(--bt);
   border-radius:22px;padding:20px;position:relative;overflow:hidden;
@@ -426,7 +485,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .fm input:focus{border-color:var(--b)}
 .hint{font-size:13px;color:var(--mute);font-weight:600}
 
-/* ===== 23. QRIS ===== */
+/* ===== QRIS ===== */
 .qrw{
   margin:14px 18px 0;background:#fff;
   border-radius:22px;padding:18px;
@@ -447,7 +506,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .acts{display:flex;gap:8px;padding:14px 18px 0}
 .acts .bt{height:46px;font-size:14px}
 
-/* ===== 24. DONE / SUKSES ===== */
+/* ===== DONE ===== */
 .dn{
   display:flex;flex-direction:column;align-items:center;
   padding:34px 24px 0;text-align:center;position:relative;
@@ -483,7 +542,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   100%{transform:translate(var(--x),var(--y)) rotate(240deg) scale(1);opacity:0}
 }
 
-/* ===== 25. DELIVERY LIST ===== */
+/* ===== DELIVERY LIST ===== */
 .dls{display:flex;flex-direction:column;gap:8px;padding:22px 18px 0}
 .dl{
   display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -498,8 +557,21 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   font-size:12.5px;color:var(--mute);
   margin-top:3px;word-break:break-all;font-weight:600;
 }
+.dls > .dl[style*="white-space:pre-wrap"]{
+  font-weight:600;
+  line-height:1.65;
+  font-size:14px;
+  color:var(--ink);
+  background:var(--card);
+  padding:16px;
+  border-radius:var(--r);
+  word-wrap:break-word;
+  overflow-wrap:break-word;
+  max-width:100%;
+  white-space:pre-wrap;
+}
 
-/* ===== 26. ORDER CARD ===== */
+/* ===== ORDER CARD ===== */
 .od{
   display:flex;align-items:center;gap:12px;
   background:var(--card);border:1px solid var(--line);
@@ -512,7 +584,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
   font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 
-/* ===== 27. STATUS BADGE ORDER ===== */
+/* ===== STATUS BADGE ORDER ===== */
 .bg{
   font-size:11.5px;font-weight:800;
   padding:5px 10px;border-radius:99px;
@@ -521,7 +593,7 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 .bg.paid{background:var(--b);color:var(--bt)}
 .bg.dead{background:transparent;border:1.5px solid var(--line);color:var(--mute)}
 
-/* ===== 28. TOAST ===== */
+/* ===== TOAST ===== */
 #toast{
   position:absolute;top:calc(env(safe-area-inset-top) + 76px);
   left:50%;transform:translate(-50%,-30px) scale(.9);
@@ -534,50 +606,15 @@ h1 .l:nth-child(3) i{animation-delay:.24s}
 }
 #toast.on{transform:translate(-50%,0) scale(1);opacity:1}
 
-/* ===== 29. FLY ANIMATION ===== */
+/* ===== FLY ===== */
 .fly{
   position:fixed;width:16px;height:16px;border-radius:50%;
   background:var(--b);z-index:120;pointer-events:none;
   transition:transform .7s cubic-bezier(.5,-.3,.7,1),opacity .7s;
 }
 
-/* ===== 30. FOOTER ===== */
+/* ===== FOOTER ===== */
 .foot{
   text-align:center;color:var(--mute);
   font-size:12px;font-weight:700;padding:30px 0 0;
-}
-
-/* ===== 31. ICON VIA URL ===== */
-.tile img{
-  max-width:60%;
-  max-height:60%;
-  object-fit:contain;
-  display:block;
-}
-.fc .big img{
-  max-width:100%;
-  max-height:100%;
-  object-fit:contain;
-}
-.dh img{
-  max-width:60%;
-  max-height:60%;
-  object-fit:contain;
-}
-.rc .tile img{max-width:55%;max-height:55%}
-.li .tile img{max-width:55%;max-height:55%}
-.ci .tile img{max-width:55%;max-height:55%}
-
-/* ===== 32. ADMIN REPLY PREVIEW (di halaman order pembeli) ===== */
-.dls > .dl[style*="white-space:pre-wrap"]{
-  font-weight:600;
-  line-height:1.65;
-  font-size:14px;
-  color:var(--ink);
-  background:var(--card);
-  padding:16px;
-  border-radius:var(--r);
-  word-wrap:break-word;
-  overflow-wrap:break-word;
-  max-width:100%;
 }

@@ -3,6 +3,15 @@
 // by XRANS OFFICIAL
 // ============================================================
 
+// Auto-clear cache versi lama
+const BUILD = 'v2';
+if (localStorage.getItem('xw_build') !== BUILD) {
+  localStorage.setItem('xw_build', BUILD);
+  if ('caches' in window) {
+    caches.keys().then(names => names.forEach(n => caches.delete(n)));
+  }
+}
+
 const $ = (s, e = document) => e.querySelector(s);
 const $$ = (s, e = document) => [...e.querySelectorAll(s)];
 const S = n => $('#s-' + n);
@@ -15,6 +24,9 @@ const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
 const FB = 'https://message-web1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
+// ============================================================
+// ICONS
+// ============================================================
 const IC = {
   route:'<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6a3 3 0 003-3V8M6 16V8"/>',
   bolt:'<path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/>',
@@ -36,15 +48,23 @@ const IC = {
 
 const sv = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[k] || IC.box}</svg>`;
 const isUrl = s => /^https?:\/\//i.test(String(s || '').trim());
+const FALLBACK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg>`;
+
 const renderIcon = (icon, size = 34) => {
   if (!icon) return sv('box');
-  if (isUrl(icon)) return `<img src="${esc(icon)}" style="width:${size}px;height:${size}px;object-fit:contain" alt="" loading="lazy">`;
+  if (isUrl(icon)) {
+    return `<img src="${esc(icon)}" alt="" loading="lazy" onerror="this.parentNode.insertAdjacentHTML('beforeend','${FALLBACK_ICON.replace(/'/g, "\\'")}');this.remove()">`;
+  }
   return sv(icon);
 };
+
 const eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>';
 const bagI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14l-1.4 12H6.4L5 7z"/><path d="M9 7a3 3 0 016 0"/></svg>';
 const COL = ['#C9D8FF', '#F6E3A1', '#BFE3CF', '#F5C9B0', '#E3D3EE', '#CFE6F0'];
 
+// ============================================================
+// STATE
+// ============================================================
 let P = [], ST = {}, ready = false, cat = 'all', qs = '';
 let cart = load('xw_cart', []);
 let myOrders = load('xw_orders', []);
@@ -57,6 +77,9 @@ const pcol = p => p.col || COL[0];
 const saveCart = () => save('xw_cart', cart);
 const saveOrders = () => save('xw_orders', myOrders);
 
+// ============================================================
+// NAVIGASI
+// ============================================================
 const io = new IntersectionObserver(es => es.forEach(e => {
   if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
 }), { threshold: .08 });
@@ -100,6 +123,9 @@ function pop() {
 }
 function popAll() { while (stack.length) pop() }
 
+// ============================================================
+// TOAST / THEME / RIPPLE
+// ============================================================
 let tt;
 const toast = m => {
   const t = $('#toast'); t.textContent = m; t.classList.add('on');
@@ -123,6 +149,9 @@ document.addEventListener('pointerdown', e => {
   b.appendChild(el); setTimeout(() => el.remove(), 600);
 });
 
+// ============================================================
+// API CLIENT
+// ============================================================
 const api = async (path, body) => {
   const r = await fetch('/api/' + path, {
     method: 'POST',
@@ -203,14 +232,6 @@ async function syncOrder(tok) {
     renderOrders();
   } catch {}
 }
-
-// Auto-poll status order yang pending, biar halaman order pembeli update sendiri
-setInterval(() => {
-  myOrders.forEach(tok => {
-    const o = OD[tok];
-    if (!o || o.status === 'pending') syncOrder(tok);
-  });
-}, 15000);
 
 // ============================================================
 // RENDER
@@ -325,6 +346,9 @@ const bump = () => $$('.bd').forEach(b => {
   b.classList.remove('b'); void b.offsetWidth; b.classList.add('b');
 });
 
+// ============================================================
+// DETAIL
+// ============================================================
 function renderDetail(id) {
   const p = byId(id); if (!p) { if (stack.includes('detail')) pop(); return }
   const inC = cart.includes(id);
@@ -359,6 +383,9 @@ function openDetail(id) {
   renderDetail(id); push('detail');
 }
 
+// ============================================================
+// CHECKOUT
+// ============================================================
 function openCheckout() {
   const items = cart.map(byId).filter(Boolean);
   if (!items.length) return toast('Tas kosong');
@@ -396,6 +423,9 @@ async function pay(el) {
   }
 }
 
+// ============================================================
+// ORDER
+// ============================================================
 function openOrder(tok) {
   curTok = tok;
   renderOrder(tok);
@@ -427,7 +457,6 @@ function renderOrder(tok) {
       return `<div class="dl"><div>${esc(d.n)}</div><span>Hubungi admin</span></div>`;
     }).join('');
 
-    // Balasan admin - hanya terlihat kalau status paid
     const reply = o.reply && o.reply.m ? `
       <div class="st">Pesan dari Admin</div>
       <div class="dls">
@@ -487,6 +516,9 @@ setInterval(() => {
   if (o && o.status === 'pending' && stack.includes('order')) checkStatus(true);
 }, 25000);
 
+// ============================================================
+// CART ADD
+// ============================================================
 function add(id, btn) {
   if (cart.includes(id)) return toast('Sudah ada di tas');
   cart.push(id); saveCart(); vib(12);
@@ -509,6 +541,9 @@ function add(id, btn) {
   if (stack.includes('detail') && curDetail) renderDetail(curDetail);
 }
 
+// ============================================================
+// ACTIONS
+// ============================================================
 const A = {
   tab: v => tab(v),
   back: () => pop(),
@@ -541,4 +576,13 @@ document.addEventListener('click', e => {
   A[el.dataset.act]?.(el.dataset.v, el);
 });
 
+// ============================================================
+// BOOT
+// ============================================================
 tab('home');
+setInterval(() => {
+  myOrders.forEach(tok => {
+    const o = OD[tok];
+    if (!o || o.status === 'pending') syncOrder(tok);
+  });
+}, 15000);
