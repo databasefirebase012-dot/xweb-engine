@@ -4,7 +4,7 @@
 // ============================================================
 
 // Auto-clear cache versi lama
-const BUILD = 'v2';
+const BUILD = 'v3';
 if (localStorage.getItem('xw_build') !== BUILD) {
   localStorage.setItem('xw_build', BUILD);
   if ('caches' in window) {
@@ -48,14 +48,19 @@ const IC = {
 
 const sv = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[k] || IC.box}</svg>`;
 const isUrl = s => /^https?:\/\//i.test(String(s || '').trim());
-const FALLBACK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5v-9z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg>`;
 
 const renderIcon = (icon, size = 34) => {
   if (!icon) return sv('box');
-  if (isUrl(icon)) {
-    return `<img src="${esc(icon)}" alt="" loading="lazy" onerror="this.parentNode.insertAdjacentHTML('beforeend','${FALLBACK_ICON.replace(/'/g, "\\'")}');this.remove()">`;
-  }
+  if (isUrl(icon)) return sv('box'); // fallback kalau dipanggil tanpa cek url
   return sv(icon);
+};
+
+// Render tile produk: URL -> full-bleed image, SVG -> warna + icon
+const tileHTML = (p, size, extra = '') => {
+  if (isUrl(p.icon)) {
+    return `<div class="tile img" ${extra}><img src="${esc(p.icon)}" alt="${esc(p.name || '')}" loading="lazy" decoding="async"></div>`;
+  }
+  return `<div class="tile" ${extra} style="background:${pcol(p)}">${sv(p.icon || 'box')}</div>`;
 };
 
 const eye = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>';
@@ -250,9 +255,16 @@ function renderHome() {
   const feat = P.filter(p => p.featured);
   $('#hFeat').innerHTML = feat.length
     ? `<div class="st">Unggulan <small id="fi">1/${feat.length}</small></div>
-       <div class="hs" id="hs">${feat.map(p => `<div class="fc" data-act="open" data-v="${p.id}" style="background:${pcol(p)}">
-       <div class="big">${renderIcon(p.icon, 120)}</div><span class="tg">${fv(p.views)} views</span>
-       <div class="rw"><div><h3>${esc(p.name)}</h3><div class="pr">${p.price ? rp(p.price) : 'Gratis'}</div></div><div class="go">→</div></div></div>`).join('')}</div>
+       <div class="hs" id="hs">${feat.map(p => {
+         const url = isUrl(p.icon);
+         return `<div class="fc ${url ? 'img' : ''}" data-act="open" data-v="${p.id}" ${url ? '' : `style="background:${pcol(p)}"`}>
+           ${url
+             ? `<img class="fcimg" src="${esc(p.icon)}" alt="${esc(p.name)}" loading="lazy">`
+             : `<div class="big">${sv(p.icon || 'box')}</div>`}
+           <span class="tg">${fv(p.views)} views</span>
+           <div class="rw"><div><h3>${esc(p.name)}</h3><div class="pr">${p.price ? rp(p.price) : 'Gratis'}</div></div><div class="go">→</div></div>
+         </div>`;
+       }).join('')}</div>
        <div class="dots" id="dots">${feat.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>`
     : '';
   const hs = $('#hs');
@@ -267,7 +279,7 @@ function renderHome() {
   $('#hPop').innerHTML = pop.length
     ? `<div class="st">Terpopuler <button class="lk" data-act="tab" data-v="mod">Semua →</button></div>
        <div class="lst">${pop.map(p => `<div class="li rv" data-act="open" data-v="${p.id}" style="--w:${Math.max(6, p.views / mx * 100)}%">
-       <div class="tile" style="background:${pcol(p)}">${renderIcon(p.icon, 22)}</div>
+       ${tileHTML(p, 22)}
        <div class="mid"><h4>${esc(p.name)}</h4><div class="bar2"><i></i></div></div><small>${fv(p.views)}</small></div>`).join('')}</div>`
     : (ready ? '<div class="emp">Belum ada produk</div>' : '');
   live($('#hPop'));
@@ -285,7 +297,8 @@ function renderGrid() {
     : l.length
       ? l.map(p => `<div class="pc rv" data-act="open" data-v="${p.id}">
         <div class="vw">${eye}${fv(p.views)}</div>${p.tag ? `<div class="tgp">${esc(p.tag)}</div>` : ''}
-        <div class="tile" style="background:${pcol(p)}">${renderIcon(p.icon, 34)}</div><h4>${esc(p.name)}</h4>
+        ${tileHTML(p, 34)}
+        <h4>${esc(p.name)}</h4>
         <div class="m"><span class="p">${p.price ? rp(p.price) : 'Gratis'}</span>
         <button class="ad ${cart.includes(p.id) ? 'ok' : ''}" data-act="add" data-v="${p.id}">${cart.includes(p.id) ? '✓' : '+'}</button></div></div>`).join('')
       : '<div class="emp">Tidak ada</div>';
@@ -299,7 +312,7 @@ function renderCart() {
   $('#cn').textContent = items.length;
   $('#cBox').innerHTML = items.length
     ? `<div class="cl">${items.map(p => `<div class="ci">
-        <div class="tile" data-act="open" data-v="${p.id}" style="background:${pcol(p)}">${renderIcon(p.icon, 22)}</div>
+        ${tileHTML(p, 22, `data-act="open" data-v="${p.id}"`)}
         <div class="mid"><h4>${esc(p.name)}</h4><small>${p.price ? rp(p.price) : 'Gratis'}</small></div>
         <button class="rm pop" data-act="rm" data-v="${p.id}">✕</button></div>`).join('')}</div>
        <div class="grow"></div>
@@ -352,16 +365,19 @@ const bump = () => $$('.bd').forEach(b => {
 function renderDetail(id) {
   const p = byId(id); if (!p) { if (stack.includes('detail')) pop(); return }
   const inC = cart.includes(id);
+  const url = isUrl(p.icon);
   const rel = [...P.filter(x => x.cat === p.cat && x.id !== id), ...P.filter(x => x.cat !== p.cat && x.id !== id)].slice(0, 5);
   S('detail').innerHTML = `
   <div class="top2"><button class="ib pop" data-act="back">‹</button>
     <span class="ct" style="margin:0">${esc((p.cat || 'MODUL').toUpperCase())}</span>
     <button class="ib pop" data-act="bag">${bagI}<span class="bd ${cart.length ? 'on' : ''}">${cart.length}</span></button></div>
-  <div class="dh" style="background:${pcol(p)}">${renderIcon(p.icon, 84)}</div>
+  <div class="dh ${url ? 'img' : ''}" ${url ? '' : `style="background:${pcol(p)}"`}>
+    ${url ? `<img src="${esc(p.icon)}" alt="${esc(p.name)}" loading="lazy">` : sv(p.icon || 'box')}
+  </div>
   <div class="dm"><div class="ct">${fv(p.views)} VIEWS</div><h3>${esc(p.name)}</h3>
     ${p.desc ? `<p>${esc(p.desc)}</p>` : ''}
     ${rel.length ? `<div class="st">Terkait</div><div class="rel">${rel.map(r =>
-      `<div class="rc" data-act="open" data-v="${r.id}"><div class="tile" style="background:${pcol(r)}">${renderIcon(r.icon, 26)}</div><h4>${esc(r.name)}</h4></div>`
+      `<div class="rc" data-act="open" data-v="${r.id}">${tileHTML(r, 26)}<h4>${esc(r.name)}</h4></div>`
     ).join('')}</div>` : ''}</div>
   <div class="grow"></div>
   <div class="bar"><div><small>${p.price ? 'harga' : 'akses'}</small>
