@@ -4,7 +4,7 @@
 // ============================================================
 
 // Auto-clear cache versi lama
-const BUILD = 'v3';
+const BUILD = 'v4';
 if (localStorage.getItem('xw_build') !== BUILD) {
   localStorage.setItem('xw_build', BUILD);
   if ('caches' in window) {
